@@ -1,7 +1,7 @@
 <?php
 /**
- * Plugin Name: Custom Presto Playlist Manager
- * Description: Version 24. Features: Builder-Proof Footer Injection, Premium UX, and Modular Architecture.
+ * Plugin Name: E-Learning on Wordpress
+ * Description: Version 1.0. Features: Builder-Proof Footer Injection, Premium UX, and Modular Architecture.
  * Version: 1.0
  * Author: Krishna Kumar
  */
