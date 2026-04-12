@@ -62,8 +62,12 @@ function cppm_render_playlist( $atts ) {
         
         .cppm-player-container { min-width: 0; position: sticky; top: 0px; position: relative; }
         .cppm-video-box { position: relative; }
-        .cppm-video-frame { background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.1); position: relative; transition:0.3s; border: 1px solid var(--border); }
         
+        /* Updated Video Frame for Slides */
+        .cppm-video-frame { background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.1); position: relative; transition:0.3s; border: 1px solid var(--border); display: flex; flex-direction: column; }
+        .cppm-player-slide { width: 100%; aspect-ratio: 16 / 9; }
+        .cppm-player-slide iframe, .cppm-player-slide video { width: 100%; height: 100%; border: none; }
+
         .cppm-auto-advance-toast { position: absolute; bottom: 20px; right: 20px; background: rgba(0,0,0,0.85); color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 10px; z-index: 999; opacity: 0; transform: translateY(10px); transition: 0.3s ease; pointer-events: none; }
         .cppm-auto-advance-toast.show { opacity: 1; transform: translateY(0); }
         .cppm-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: cppm-spin 1s linear infinite; }
@@ -120,9 +124,23 @@ function cppm_render_playlist( $atts ) {
         .cppm-yt-badge { background: var(--bg-sec); color: var(--text-sec); border: 1px solid var(--border); font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; margin-bottom: 8px; display: inline-block; }
         
         @keyframes cppmFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @media (max-width: 768px) { #playlist-<?php echo $uid; ?> { grid-template-columns: 1fr; } .cppm-utility-btn { display: none; } }
+        @media (max-width: 768px) { 
+    /* Switch to a flex column layout on mobile */
+    #playlist-<?php echo $uid; ?> { display: flex; flex-direction: column; gap: 0; } 
+    
+    /* "Unwrap" the left column container so we can reorder its children */
+    .cppm-player-container { display: contents; }
+    
+    /* Force the new mobile stacking order */
+    .cppm-video-box { order: 1; }
+    .cppm-sidebar { order: 2; margin-top: 30px; }
+    .cppm-notes-area { order: 3; margin-top: 30px; }
+    .cppm-discussion-area { order: 4; margin-top: 30px; }
+    
+    /* THE FIX: Only hide Theater Mode on mobile. Keep Dark Mode and Timestamps! */
+    .cppm-ux-theater { display: none !important; } 
+}
 
-        /* ================= USER CUSTOM CSS ================= */
         <?php echo $custom_css; ?>
     </style>
 
@@ -132,8 +150,23 @@ function cppm_render_playlist( $atts ) {
         <div class="cppm-player-container">
             <div class="cppm-video-box">
                 <div class="cppm-video-frame" id="cppm-video-frame-<?php echo $uid; ?>">
-                    <?php echo do_shortcode( '[presto_player src="' . esc_attr($videos[$last_vid]['url']) . '"]' ); ?>
+                    <?php foreach ( $videos as $index => $vid ) : ?>
+                        <div class="cppm-player-slide" id="player-slide-<?php echo $uid . '-' . $index; ?>" style="display: <?php echo $index === $last_vid ? 'block' : 'none'; ?>;">
+                            <?php 
+                            $vid_val = trim($vid['url']);
+                            if ( is_numeric($vid_val) ) {
+                                // If the user typed a number, it's a Presto Video ID
+                                echo do_shortcode('[presto_player id="' . esc_attr($vid_val) . '"]');
+                            } else {
+                                // If the user pasted a raw YouTube/Vimeo URL, use the native WordPress Smart Embedder
+                                global $wp_embed;
+                                echo $wp_embed->run_shortcode('[embed]' . esc_url($vid_val) . '[/embed]');
+                            }
+                            ?>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
+
                 <div id="cppm-toast-<?php echo $uid; ?>" class="cppm-auto-advance-toast"><div class="cppm-spinner"></div> Up next in 3...</div>
                 
                 <div class="cppm-header-actions">
@@ -233,13 +266,49 @@ function cppm_render_playlist( $atts ) {
             </div>
 
             <div class="cppm-list">
-                <?php foreach ( $videos as $index => $vid ) : 
-                    $is_done = in_array($index, $completed_videos); ?>
+                <?php 
+                // Helper Function defined earlier for Drip Days Check
+                function cppm_get_days_since_purchase_inline($user_id, $product_id) {
+                    if (empty($product_id) || !function_exists('wc_get_orders')) return 9999;
+                    $orders = wc_get_orders( array('customer_id' => $user_id, 'status' => array('wc-completed'), 'limit' => -1) );
+                    foreach ( $orders as $order ) {
+                        foreach ( $order->get_items() as $item ) {
+                            if ( $item->get_product_id() == $product_id ) {
+                                $order_date = $order->get_date_completed();
+                                if ($order_date) {
+                                    $now = new WC_DateTime();
+                                    $diff = $now->diff($order_date);
+                                    return $diff->days;
+                                }
+                            }
+                        }
+                    }
+                    return 0;
+                }
+                
+                $days_enrolled = cppm_get_days_since_purchase_inline($current_user->ID, $prod_id);
+                
+                foreach ( $videos as $index => $vid ) : 
+                    $is_done = in_array($index, $completed_videos); 
+                    $required_drip_days = isset($vid['drip']) ? intval($vid['drip']) : 0;
+                    $is_locked = ($days_enrolled < $required_drip_days);
+                    
+                    if ($is_locked) {
+                        $days_left = $required_drip_days - $days_enrolled;
+                        echo '<div class="cppm-item" style="opacity: 0.6; cursor: not-allowed; background:var(--bg-sec); display:flex; justify-content:space-between;">';
+                        echo '<div><span style="margin-right:8px;">🔒</span>' . esc_html($vid['title']) . '</div>';
+                        echo '<div style="font-size:12px; color:var(--text-sec); font-weight:bold;">In ' . $days_left . ' days</div>';
+                        echo '</div>';
+                    } else {
+                ?>
                     <button type="button" class="cppm-item cppm-switch-trigger <?php echo ($index === $last_vid ? 'active' : ''); ?>" data-target="<?php echo $index; ?>" data-title="<?php echo esc_attr($vid['title']); ?>" data-completed="<?php echo $is_done ? 'true' : 'false'; ?>" id="nav-<?php echo $uid . '-' . $index; ?>">
                         <div id="dot-<?php echo $uid . '-' . $index; ?>" style="width:10px; height:10px; border-radius:50%; border:2px solid <?php echo ($is_done ? '#10b981' : 'var(--border)'); ?>; background:<?php echo ($is_done ? '#10b981' : 'transparent'); ?>; flex-shrink:0;"></div>
                         <span><?php echo esc_html($vid['title']); ?></span>
                     </button>
-                <?php endforeach; ?>
+                <?php 
+                    }
+                endforeach; 
+                ?>
             </div>
         </div>
     </div>
@@ -308,8 +377,8 @@ function cppm_inject_global_javascript() {
                 var wrap = e.target.closest('.cppm-container');
                 if(!wrap) return;
                 wrap.querySelectorAll('.cppm-item').forEach(function(item) {
-                    var title = item.getAttribute('data-title').toLowerCase();
-                    item.style.display = title.includes(term) ? 'flex' : 'none';
+                    var titleText = item.innerText.toLowerCase();
+                    item.style.display = titleText.includes(term) ? 'flex' : 'none';
                 });
             }
             
@@ -358,7 +427,7 @@ function cppm_inject_global_javascript() {
                 var target = switchBtn.getAttribute('data-target');
                 var title = switchBtn.getAttribute('data-title');
 
-                wrap.querySelectorAll('.cppm-item').forEach(function(b){ b.classList.remove('active'); });
+                wrap.querySelectorAll('.cppm-switch-trigger').forEach(function(b){ b.classList.remove('active'); });
                 switchBtn.classList.add('active');
 
                 var doneBtn = document.getElementById('done-btn-' + uid);
@@ -377,31 +446,19 @@ function cppm_inject_global_javascript() {
                 if(idxField) idxField.value = target;
                 filterComments(uid, target);
 
+                // --- NEW FAST-SWITCHING LOGIC (NO AJAX) ---
                 var frame = document.getElementById('cppm-video-frame-' + uid);
                 if(frame) {
-                    frame.innerHTML = '<div style="padding:80px 20px; text-align:center; display:flex; justify-content:center; align-items:center; min-height:300px;"><div class="cppm-spinner" style="width:40px; height:40px; border-width:3px; border-color:var(--brand); border-top-color:transparent;"></div></div>';
+                    // Hide all slides
+                    var slides = frame.querySelectorAll('.cppm-player-slide');
+                    slides.forEach(function(slide) { slide.style.display = 'none'; });
+                    
+                    // Show only the clicked slide
+                    var targetSlide = document.getElementById('player-slide-' + uid + '-' + target);
+                    if(targetSlide) targetSlide.style.display = 'block';
                 }
 
-                var fdLoad = new FormData();
-                fdLoad.append('action', 'cppm_load_video');
-                fdLoad.append('playlist_id', pid);
-                fdLoad.append('video_index', target);
-                
-                fetch(ajaxUrl, { method: "POST", body: fdLoad })
-                .then(function(res){ return res.json(); })
-                .then(function(data){
-                    if(data.success && frame) {
-                        frame.innerHTML = data.data.html;
-                        var scripts = frame.querySelectorAll('script');
-                        scripts.forEach(function(s) {
-                            var newS = document.createElement('script');
-                            Array.from(s.attributes).forEach(function(attr){ newS.setAttribute(attr.name, attr.value); });
-                            newS.appendChild(document.createTextNode(s.innerHTML));
-                            s.parentNode.replaceChild(newS, s);
-                        });
-                    }
-                });
-
+                // Save user's resume point silently
                 var fdSave = new FormData();
                 fdSave.append("action", "cppm_save_last_video");
                 fdSave.append("playlist_id", pid);
@@ -633,5 +690,4 @@ function cppm_inject_global_javascript() {
     });
     </script>
     <?php
-    // Notice I have completely removed the `return ob_get_clean();` that was right here!
 }
