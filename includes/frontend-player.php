@@ -1,6 +1,45 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) exit;
 
+// ==========================================
+// AJAX HANDLER: DELETE COMMENT
+// ==========================================
+add_action( 'wp_ajax_cppm_delete_comment', 'cppm_ajax_delete_comment' );
+function cppm_ajax_delete_comment() {
+    check_ajax_referer( 'cppm_dashboard_ajax_nonce', 'security' );
+
+    $comment_id = isset($_POST['comment_id']) ? intval($_POST['comment_id']) : 0;
+    if ( !$comment_id ) {
+        wp_send_json_error("Invalid comment ID.");
+    }
+
+    $comment = get_comment($comment_id);
+    if ( !$comment ) {
+        wp_send_json_error("Comment not found.");
+    }
+
+    $current_user_id = get_current_user_id();
+    if ( !$current_user_id ) {
+        wp_send_json_error("You must be logged in.");
+    }
+
+    // SECURITY: Only allow deletion if user is the comment author OR an Administrator
+    if ( $current_user_id != $comment->user_id && !current_user_can('manage_options') ) {
+        wp_send_json_error("You do not have permission to delete this comment.");
+    }
+
+    // Force delete the comment (bypass trash)
+    if ( wp_delete_comment( $comment_id, true ) ) {
+        wp_send_json_success("Comment deleted successfully.");
+    } else {
+        wp_send_json_error("Failed to delete comment.");
+    }
+}
+
+
+// ==========================================
+// COURSE PLAYLIST SHORTCODE
+// ==========================================
 add_shortcode( 'course_playlist', 'cppm_render_playlist' );
 function cppm_render_playlist( $atts ) {
     $atts = shortcode_atts( array( 'id' => '' ), $atts );
@@ -42,6 +81,9 @@ function cppm_render_playlist( $atts ) {
     ob_start();
     ?>
     <style>
+        /* THEME COMMENT KILL SWITCH: Hides default theme comments entirely on this page */
+        #comments, #respond, .comments-area, .comment-respond, .post-comments { display: none !important; }
+
         #playlist-<?php echo $uid; ?> { 
             --brand: <?php echo $ui_brand; ?>; 
             --active-bg: <?php echo $ui_active_bg; ?>; 
@@ -63,7 +105,6 @@ function cppm_render_playlist( $atts ) {
         .cppm-player-container { min-width: 0; position: sticky; top: 0px; position: relative; }
         .cppm-video-box { position: relative; }
         
-        /* Updated Video Frame for Slides */
         .cppm-video-frame { background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.1); position: relative; transition:0.3s; border: 1px solid var(--border); display: flex; flex-direction: column; }
         .cppm-player-slide { width: 100%; aspect-ratio: 16 / 9; }
         .cppm-player-slide iframe, .cppm-player-slide video { width: 100%; height: 100%; border: none; }
@@ -102,6 +143,7 @@ function cppm_render_playlist( $atts ) {
         .cppm-timestamp-link { transition: 0.2s; }
 
         .cppm-discussion-area { margin-top: 30px; padding: 30px; background: var(--bg-main); border-radius: 12px; border: 1px solid var(--border); box-sizing: border-box; transition:0.3s; }
+        
         .cppm-yt-form-row { display: flex; gap: 16px; margin-bottom: 20px; align-items: flex-start; }
         .cppm-yt-avatar img { border-radius: 50%; width: 40px; height: 40px; object-fit: cover; }
         .cppm-yt-input-container { flex: 1; position: relative; min-width: 0; }
@@ -115,31 +157,24 @@ function cppm_render_playlist( $atts ) {
         .cppm-yt-cancel:hover { background: var(--bg-hover); }
         .cppm-yt-submit { background: var(--bg-hover); color: var(--text-sec); border: none; padding: 8px 16px; border-radius: 18px; font-weight: 600; cursor: not-allowed; transition: 0.2s; font-size:14px; }
         
-        .cppm-yt-comment { display: flex; gap: 16px; margin-bottom: 24px; animation: cppmFadeIn 0.4s ease forwards; }
+        .cppm-yt-comment { display: flex; gap: 16px; margin-bottom: 24px; animation: cppmFadeIn 0.4s ease forwards; transition: opacity 0.3s ease; }
         .cppm-yt-comment-header { margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
         .cppm-yt-author { font-weight: 600; color: var(--text-main); font-size: 14px; }
         .cppm-yt-time { font-size: 12px; color: var(--text-sec); }
         .cppm-yt-text { font-size: 15px; color: var(--text-main); line-height: 1.5; margin-bottom: 8px; word-wrap: break-word; }
-        .cppm-yt-actions-row { display: flex; align-items: center; color: var(--text-sec); font-size: 13px; font-weight: 600; }
+        .cppm-yt-actions-row { display: flex; align-items: center; color: var(--text-sec); font-size: 13px; font-weight: 600; width: 100%; }
         .cppm-yt-badge { background: var(--bg-sec); color: var(--text-sec); border: 1px solid var(--border); font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; margin-bottom: 8px; display: inline-block; }
         
         @keyframes cppmFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @media (max-width: 768px) { 
-    /* Switch to a flex column layout on mobile */
-    #playlist-<?php echo $uid; ?> { display: flex; flex-direction: column; gap: 0; } 
-    
-    /* "Unwrap" the left column container so we can reorder its children */
-    .cppm-player-container { display: contents; }
-    
-    /* Force the new mobile stacking order */
-    .cppm-video-box { order: 1; }
-    .cppm-sidebar { order: 2; margin-top: 30px; }
-    .cppm-notes-area { order: 3; margin-top: 30px; }
-    .cppm-discussion-area { order: 4; margin-top: 30px; }
-    
-    /* THE FIX: Only hide Theater Mode on mobile. Keep Dark Mode and Timestamps! */
-    .cppm-ux-theater { display: none !important; } 
-}
+            #playlist-<?php echo $uid; ?> { display: flex; flex-direction: column; gap: 0; } 
+            .cppm-player-container { display: contents; }
+            .cppm-video-box { order: 1; }
+            .cppm-sidebar { order: 2; margin-top: 30px; }
+            .cppm-notes-area { order: 3; margin-top: 30px; }
+            .cppm-discussion-area { order: 4; margin-top: 30px; }
+            .cppm-ux-theater { display: none !important; } 
+        }
 
         <?php echo $custom_css; ?>
     </style>
@@ -154,13 +189,11 @@ function cppm_render_playlist( $atts ) {
                         <div class="cppm-player-slide" id="player-slide-<?php echo $uid . '-' . $index; ?>" style="display: <?php echo $index === $last_vid ? 'block' : 'none'; ?>;">
                             <?php 
                             $vid_val = trim($vid['url']);
+                            
                             if ( is_numeric($vid_val) ) {
-                                // If the user typed a number, it's a Presto Video ID
                                 echo do_shortcode('[presto_player id="' . esc_attr($vid_val) . '"]');
                             } else {
-                                // If the user pasted a raw YouTube/Vimeo URL, use the native WordPress Smart Embedder
-                                global $wp_embed;
-                                echo $wp_embed->run_shortcode('[embed]' . esc_url($vid_val) . '[/embed]');
+                                echo do_shortcode('[presto_player src="' . esc_url($vid_val) . '"]');
                             }
                             ?>
                         </div>
@@ -198,31 +231,33 @@ function cppm_render_playlist( $atts ) {
             <div class="cppm-discussion-area">
                 <?php 
                 $get_comments_args = array( 'post_id' => get_the_ID(), 'status' => 'approve', 'order' => 'DESC' );
-                if ( is_user_logged_in() ) { $get_comments_args['include_unapproved'] = array( get_current_user_id() ); } 
+                if ( is_user_logged_in() ) { $get_comments_args['include_unapproved'] = array( $current_user->ID ); } 
                 $comments = get_comments( $get_comments_args );
 
-                $current_user_avatar = get_avatar( get_current_user_id(), 40, '', '', array('style' => 'border-radius:50%;') );
+                $current_user_avatar = get_avatar( $current_user->ID, 40, '', '', array('style' => 'border-radius:50%;') );
+                ?>
                 
-                $comment_args = array(
-                    'title_reply' => '<span style="font-size:1.3rem; font-weight:700; color:var(--text-main);">' . count($comments) . ' Comments</span>',
-                    'title_reply_before' => '<h3 id="reply-title" class="comment-reply-title" style="margin-bottom:20px; margin-top:0;">',
-                    'title_reply_after' => '</h3>',
-                    'logged_in_as' => '',
-                    'comment_notes_before' => '',
-                    'class_submit' => 'cppm-yt-submit',
-                    'label_submit' => 'Comment',
-                    'submit_button' => '<div class="cppm-yt-form-actions"><button type="button" class="cppm-yt-cancel">Cancel</button><input name="%1$s" type="submit" id="%2$s" class="%3$s" value="%4$s" disabled /></div>',
-                    'comment_field' => '
+                <div class="cppm-custom-comment-form-wrapper">
+                    <span style="font-size:1.3rem; font-weight:700; color:var(--text-main); margin-bottom:20px; display:block;">
+                        <span id="cppm-comment-count-<?php echo $uid; ?>"><?php echo count($comments); ?></span> Comments
+                    </span>
+                    <form class="cppm-ajax-comment-form">
+                        <input type="hidden" name="comment_post_ID" value="<?php echo get_the_ID(); ?>">
                         <div class="cppm-yt-form-row">
-                            <div class="cppm-yt-avatar">' . $current_user_avatar . '</div>
+                            <div class="cppm-yt-avatar"><?php echo $current_user_avatar; ?></div>
                             <div class="cppm-yt-input-container">
-                                <textarea id="comment" name="comment" rows="1" class="cppm-yt-textarea" placeholder="Add a comment..." required></textarea>
+                                <textarea name="comment" rows="1" class="cppm-yt-textarea" placeholder="Add a comment... (Press Enter to post, Shift+Enter for new line)" required></textarea>
                                 <div class="cppm-yt-underline"></div>
                             </div>
-                        </div>',
-                );
-                comment_form($comment_args, get_the_ID()); 
-                
+                        </div>
+                        <div class="cppm-yt-form-actions">
+                            <button type="button" class="cppm-yt-cancel">Cancel</button>
+                            <button type="submit" class="cppm-yt-submit" disabled>Comment</button>
+                        </div>
+                    </form>
+                </div>
+
+                <?php
                 echo '<div id="cppm-comments-wrapper-' . $uid . '" style="margin-top:30px;">';
                 if ( $comments ) {
                     foreach($comments as $c) {
@@ -233,16 +268,20 @@ function cppm_render_playlist( $atts ) {
                         $is_instructor = user_can($c->user_id, 'manage_options');
                         $instructor_badge = $is_instructor ? '<span style="background:var(--text-main); color:var(--bg-main); font-size:10px; padding:2px 6px; border-radius:12px; margin-left:8px; font-weight:600;">Instructor</span>' : '';
                         
+                        // DETERMINE IF USER CAN DELETE THIS COMMENT
+                        $can_delete = ($current_user->ID && ($current_user->ID == $c->user_id || current_user_can('manage_options')));
+                        $delete_btn = $can_delete ? '<span class="cppm-yt-delete" data-cid="' . esc_attr($c->comment_ID) . '" style="cursor:pointer; margin-left:16px; color:#ef4444; font-weight:600;" title="Delete Comment">Delete</span>' : '';
+
                         $display_style = ($filter_attr === 'all' || $filter_attr == $last_vid) ? 'flex' : 'none';
 
                         echo '<div class="cppm-yt-comment cppm-custom-comment" data-video-index="' . esc_attr($filter_attr) . '" style="display:' . $display_style . ';">';
                         echo '<div class="cppm-yt-avatar">' . get_avatar( $c, 40, '', '', array('style' => 'border-radius:50%;') ) . '</div>';
-                        echo '<div class="cppm-yt-comment-body">';
+                        echo '<div class="cppm-yt-comment-body" style="flex:1;">';
                         echo '<div class="cppm-yt-comment-header"><span class="cppm-yt-author">' . esc_html($c->comment_author) . $instructor_badge . '</span><span class="cppm-yt-time">' . date('M j, Y', strtotime($c->comment_date)) . '</span></div>';
                         if ($badge) { echo '<div class="cppm-yt-badge">📍 ' . esc_html($badge) . '</div>'; }
                         $content = apply_filters('comment_text', $c->comment_content, $c);
                         echo '<div class="cppm-yt-text">' . wp_kses_post($content) . '</div>';
-                        echo '<div class="cppm-yt-actions-row"><span style="cursor:pointer;">👍</span><span style="cursor:pointer; margin-left:8px;">👎</span><span style="cursor:pointer; margin-left:16px; font-weight:600;">Reply</span></div>';
+                        echo '<div class="cppm-yt-actions-row"><span style="cursor:pointer;">👍</span><span style="cursor:pointer; margin-left:8px;">👎</span><span style="cursor:pointer; margin-left:16px; font-weight:600;">Reply</span>' . $delete_btn . '</div>';
                         echo '</div></div>';
                     }
                 }
@@ -267,7 +306,6 @@ function cppm_render_playlist( $atts ) {
 
             <div class="cppm-list">
                 <?php 
-                // Helper Function defined earlier for Drip Days Check
                 function cppm_get_days_since_purchase_inline($user_id, $product_id) {
                     if (empty($product_id) || !function_exists('wc_get_orders')) return 9999;
                     $orders = wc_get_orders( array('customer_id' => $user_id, 'status' => array('wc-completed'), 'limit' => -1) );
@@ -323,6 +361,8 @@ function cppm_inject_global_javascript() {
     document.addEventListener("DOMContentLoaded", function() {
         
         var ajaxUrl = "<?php echo esc_url( admin_url('admin-ajax.php') ); ?>";
+        // Nonce defined globally for JS actions within the player
+        var ajaxNonce = "<?php echo wp_create_nonce( 'cppm_dashboard_ajax_nonce' ); ?>";
 
         var isDark = localStorage.getItem('cppm_theme') === 'dark';
         var containers = document.querySelectorAll('.cppm-container');
@@ -394,6 +434,9 @@ function cppm_inject_global_javascript() {
                         submitBtn.style.color = '#fff';
                         submitBtn.style.cursor = 'pointer';
                         submitBtn.disabled = false;
+                        
+                        var actions = form.querySelector('.cppm-yt-form-actions');
+                        if(actions) actions.classList.add('active');
                     } else {
                         submitBtn.style.background = 'var(--bg-hover)';
                         submitBtn.style.color = 'var(--text-sec)';
@@ -404,8 +447,76 @@ function cppm_inject_global_javascript() {
             }
         });
 
+        // ==========================================
+        // KEYDOWN LISTENER: Enter to Submit Comment
+        // ==========================================
+        document.body.addEventListener('keydown', function(e) {
+            if (e.target.matches('.cppm-yt-textarea')) {
+                // If Enter is pressed WITHOUT the shift key
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault(); 
+                    var form = e.target.closest('form');
+                    var submitBtn = form.querySelector('.cppm-yt-submit');
+                    
+                    if (submitBtn && !submitBtn.disabled) {
+                        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                    }
+                }
+            }
+        });
+
         document.body.addEventListener('click', function(e) {
             
+            // ==========================================
+            // AJAX LISTENER: Delete Comment
+            // ==========================================
+            var deleteBtn = e.target.closest('.cppm-yt-delete');
+            if (deleteBtn) {
+                e.preventDefault();
+                if (!confirm("Are you sure you want to delete this comment?")) return;
+                
+                var cid = deleteBtn.getAttribute('data-cid');
+                var commentBox = deleteBtn.closest('.cppm-yt-comment');
+                var wrap = deleteBtn.closest('.cppm-container');
+                var uid = wrap.getAttribute('data-uid');
+
+                var fdDel = new FormData();
+                fdDel.append('action', 'cppm_delete_comment');
+                fdDel.append('comment_id', cid);
+                fdDel.append('security', ajaxNonce);
+
+                deleteBtn.innerText = "Deleting...";
+                deleteBtn.style.pointerEvents = "none";
+
+                fetch(ajaxUrl, { method: "POST", body: fdDel })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        // Smoothly fade out the comment
+                        commentBox.style.opacity = "0";
+                        setTimeout(() => { 
+                            commentBox.remove(); 
+                            
+                            // Update the counter
+                            var countEl = document.getElementById('cppm-comment-count-' + uid);
+                            if(countEl) {
+                                var currentCount = parseInt(countEl.innerText);
+                                if (currentCount > 0) countEl.innerText = currentCount - 1;
+                            }
+                        }, 300);
+                    } else {
+                        alert(data.data);
+                        deleteBtn.innerText = "Delete";
+                        deleteBtn.style.pointerEvents = "auto";
+                    }
+                })
+                .catch(err => {
+                    alert("Connection error.");
+                    deleteBtn.innerText = "Delete";
+                    deleteBtn.style.pointerEvents = "auto";
+                });
+            }
+
             var darkBtn = e.target.closest('.cppm-ux-darkmode');
             if (darkBtn) {
                 e.preventDefault();
@@ -446,19 +557,15 @@ function cppm_inject_global_javascript() {
                 if(idxField) idxField.value = target;
                 filterComments(uid, target);
 
-                // --- NEW FAST-SWITCHING LOGIC (NO AJAX) ---
                 var frame = document.getElementById('cppm-video-frame-' + uid);
                 if(frame) {
-                    // Hide all slides
                     var slides = frame.querySelectorAll('.cppm-player-slide');
                     slides.forEach(function(slide) { slide.style.display = 'none'; });
                     
-                    // Show only the clicked slide
                     var targetSlide = document.getElementById('player-slide-' + uid + '-' + target);
                     if(targetSlide) targetSlide.style.display = 'block';
                 }
 
-                // Save user's resume point silently
                 var fdSave = new FormData();
                 fdSave.append("action", "cppm_save_last_video");
                 fdSave.append("playlist_id", pid);
@@ -602,10 +709,12 @@ function cppm_inject_global_javascript() {
             }
         });
 
-        // AJAX Comments
+        // AJAX Comments Handler
         document.body.addEventListener('submit', function(e) {
             var form = e.target;
-            if (form.matches('.cppm-container form.comment-form') || form.matches('.cppm-container #commentform') || form.closest('.cppm-discussion-area')) {
+            
+            // Checks if it is our custom form class
+            if (form.matches('.cppm-ajax-comment-form')) {
                 e.preventDefault();
                 var wrap = form.closest('.cppm-container');
                 var uid = wrap.getAttribute('data-uid');
@@ -614,11 +723,11 @@ function cppm_inject_global_javascript() {
                 var activeBtn = document.getElementById('nav-' + uid + '-' + activeIdx);
                 var activeTitle = activeBtn ? activeBtn.getAttribute('data-title') : '';
 
-                var submitBtn = form.querySelector('input[type="submit"], button[type="submit"]');
+                var submitBtn = form.querySelector('button[type="submit"]');
                 var origText = "Comment";
                 if(submitBtn) {
-                    origText = submitBtn.value || submitBtn.innerText;
-                    if(submitBtn.value) submitBtn.value = "Posting..."; else submitBtn.innerText = "Posting...";
+                    origText = submitBtn.innerText;
+                    submitBtn.innerText = "Posting...";
                     submitBtn.disabled = true;
                 }
 
@@ -631,7 +740,7 @@ function cppm_inject_global_javascript() {
                 .then(function(res){ return res.json(); })
                 .then(function(data){
                     if(submitBtn) {
-                        if(submitBtn.value) submitBtn.value = origText; else submitBtn.innerText = origText;
+                        submitBtn.innerText = origText;
                         submitBtn.style.background = 'var(--bg-hover)';
                         submitBtn.style.color = 'var(--text-sec)';
                         submitBtn.style.cursor = 'not-allowed';
@@ -642,16 +751,23 @@ function cppm_inject_global_javascript() {
                         var noMsg = document.getElementById('cppm-no-comments-msg-' + uid);
                         if(noMsg) noMsg.remove();
                         if(wrapList) wrapList.insertAdjacentHTML('afterbegin', data.data);
+                        
                         var txt = form.querySelector('.cppm-yt-textarea');
                         if(txt) { txt.value = ''; txt.style.height = 'auto'; }
                         var actions = form.querySelector('.cppm-yt-form-actions');
                         if(actions) actions.classList.remove('active');
+
+                        // Increment comment counter
+                        var countEl = document.getElementById('cppm-comment-count-' + uid);
+                        if(countEl) {
+                            countEl.innerText = parseInt(countEl.innerText) + 1;
+                        }
                     } else {
                         alert("Notice: " + data.data);
                     }
                 }).catch(function(err){
                     if(submitBtn) {
-                        if(submitBtn.value) submitBtn.value = origText; else submitBtn.innerText = origText;
+                        submitBtn.innerText = origText;
                         submitBtn.disabled = false;
                     }
                 });

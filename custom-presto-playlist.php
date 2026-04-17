@@ -1,7 +1,7 @@
 <?php
 /**
- * Plugin Name: E-Learning on Wordpress
- * Description: Version 1.0. Features: Builder-Proof Footer Injection, Premium UX, and Modular Architecture.
+ * Plugin Name: Custom Presto Playlist Manager
+ * Description: Version 24. Features: Builder-Proof Footer Injection, Premium UX, and Modular Architecture.
  * Version: 1.0
  * Author: Krishna Kumar
  */
@@ -43,3 +43,21 @@ function cppm_save_multi_ebook_progress_callback() {
 }
 // 6. E-book
 require_once CPPM_PLUGIN_DIR . 'includes/frontend-ebook-reader.php';
+
+// Load Custom UPI Payment Gateway
+require_once CPPM_PLUGIN_DIR . 'includes/class-wc-gateway-custom-upi.php';
+
+// Prevent Duplicate Course Purchases
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-duplicate-prevention.php';
+
+// Daily Database Cleanup for Abandoned Orders
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-order-cleanup.php';
+
+// Dynamic Navigation and Auth Icons
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-navigation.php';
+
+// Unified Student Dashboard
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-student-dashboard.php';
+
+// Custom Storefront
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-storefront.php';
