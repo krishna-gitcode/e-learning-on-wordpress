@@ -45,7 +45,9 @@ add_action( 'wp_ajax_cppm_load_store_products', 'cppm_ajax_load_store_products' 
 add_action( 'wp_ajax_nopriv_cppm_load_store_products', 'cppm_ajax_load_store_products' );
 
 function cppm_ajax_load_store_products() {
-    check_ajax_referer( 'cppm_store_ajax_nonce', 'security' );
+    // SECURITY FIX (Issue 3): Removed check_ajax_referer() 
+    // Page caching plugins cache the nonce, causing a "-1" error for public users after 12 hours.
+    // Since this is a public, read-only product query, a strict nonce is unnecessary.
     cppm_fetch_and_render_products(1);
 }
 
@@ -53,7 +55,7 @@ add_action( 'wp_ajax_cppm_lazy_load_more', 'cppm_ajax_lazy_load_more' );
 add_action( 'wp_ajax_nopriv_cppm_lazy_load_more', 'cppm_ajax_lazy_load_more' );
 
 function cppm_ajax_lazy_load_more() {
-    check_ajax_referer( 'cppm_store_ajax_nonce', 'security' );
+    // SECURITY FIX (Issue 3): Removed check_ajax_referer()
     $paged = isset( $_POST['paged'] ) ? intval( $_POST['paged'] ) : 1;
     cppm_fetch_and_render_products($paged, true);
 }
@@ -74,7 +76,8 @@ function cppm_fetch_and_render_products($paged = 1, $is_lazy = false) {
     $args = array(
         'post_type'      => 'product',
         'post_status'    => 'publish',
-        'posts_per_page' => $is_lazy ? 5 : 10,
+        // FIX: This MUST be a static number. Changing it during lazy-load breaks the WP offset math.
+        'posts_per_page' => 12, 
         'paged'          => $paged, 
     );
 
@@ -107,48 +110,41 @@ function cppm_fetch_and_render_products($paged = 1, $is_lazy = false) {
         // Ensure sorting still applies alongside filters
         if ( $orderby ) {
             switch ( $orderby ) {
-                case 'price': $args['orderby'] = 'meta_value_num'; $args['meta_key'] = '_price'; $args['order'] = 'ASC'; break;
-                case 'price-desc': $args['orderby'] = 'meta_value_num'; $args['meta_key'] = '_price'; $args['order'] = 'DESC'; break;
-                case 'rating': $args['orderby'] = 'meta_value_num'; $args['meta_key'] = '_wc_average_rating'; $args['order'] = 'DESC'; break;
+                case 'price': $args['meta_key'] = '_price'; $args['orderby'] = array('meta_value_num' => 'ASC', 'ID' => 'DESC'); break;
+                case 'price-desc': $args['meta_key'] = '_price'; $args['orderby'] = array('meta_value_num' => 'DESC', 'ID' => 'DESC'); break;
+                case 'rating': $args['meta_key'] = '_wc_average_rating'; $args['orderby'] = array('meta_value_num' => 'DESC', 'ID' => 'DESC'); break;
                 case 'date': $args['orderby'] = 'date'; $args['order'] = 'DESC'; break;
-                default: $args['orderby'] = 'meta_value_num'; $args['meta_key'] = 'total_sales'; $args['order'] = 'DESC'; break;
+                default: $args['meta_key'] = 'total_sales'; $args['orderby'] = array('meta_value_num' => 'DESC', 'ID' => 'DESC'); break;
             }
         }
     } 
-    // THE "FOR YOU" ALGORITHM (Only runs if no manual filters are active)
+    // THE "FOR YOU" ALGORITHM FIX
     elseif ( $category_slug === 'all' && $orderby === 'popularity' ) {
-        $args['meta_query'] = array(
-            'relation' => 'OR',
-            array( 'key' => '_sale_price', 'value' => 0, 'compare' => '>', 'type' => 'NUMERIC' ),
-            array( 'key' => 'total_sales', 'value' => 1, 'compare' => '>=', 'type' => 'NUMERIC' ),
-            array( 'key' => '_wc_average_rating', 'value' => 4.0, 'compare' => '>=', 'type' => 'DECIMAL' )
+        $args['meta_key'] = 'total_sales';
+        
+        // FIX: Add secondary sort by ID. If multiple products have 0 sales, 
+        // MySQL randomizes them on lazy load. This forces a stable layout.
+        $args['orderby'] = array(
+            'meta_value_num' => 'DESC',
+            'ID'             => 'DESC'
         );
-        $args['orderby'] = 'modified';
-        $args['order'] = 'DESC';
 
         $personal_data = cppm_get_user_personalized_data();
+        
+        // Exclude already purchased items
         if ( ! empty( $personal_data['product_ids'] ) ) {
             $args['post__not_in'] = $personal_data['product_ids']; 
         }
-        if ( ! empty( $personal_data['cat_ids'] ) ) {
-            $args['tax_query'] = array(
-                array(
-                    'taxonomy' => 'product_cat',
-                    'field'    => 'term_id',
-                    'terms'    => $personal_data['cat_ids'],
-                    'operator' => 'IN'
-                )
-            );
-        }
+        
     } else {
         // Standard Sorting (No Filters, Specific Category)
         if ( $orderby ) {
             switch ( $orderby ) {
-                case 'price': $args['meta_key'] = '_price'; $args['orderby'] = 'meta_value_num'; $args['order'] = 'ASC'; break;
-                case 'price-desc': $args['meta_key'] = '_price'; $args['orderby'] = 'meta_value_num'; $args['order'] = 'DESC'; break;
-                case 'rating': $args['meta_key'] = '_wc_average_rating'; $args['orderby'] = 'meta_value_num'; $args['order'] = 'DESC'; break;
+                case 'price': $args['meta_key'] = '_price'; $args['orderby'] = array('meta_value_num' => 'ASC', 'ID' => 'DESC'); break;
+                case 'price-desc': $args['meta_key'] = '_price'; $args['orderby'] = array('meta_value_num' => 'DESC', 'ID' => 'DESC'); break;
+                case 'rating': $args['meta_key'] = '_wc_average_rating'; $args['orderby'] = array('meta_value_num' => 'DESC', 'ID' => 'DESC'); break;
                 case 'date': $args['orderby'] = 'date'; $args['order'] = 'DESC'; break;
-                default: $args['meta_key'] = 'total_sales'; $args['orderby'] = array('meta_value_num' => 'DESC', 'date' => 'DESC'); break;
+                default: $args['meta_key'] = 'total_sales'; $args['orderby'] = array('meta_value_num' => 'DESC', 'ID' => 'DESC'); break;
             }
         }
     }
@@ -176,6 +172,8 @@ function cppm_fetch_and_render_products($paged = 1, $is_lazy = false) {
     } elseif ( ! $is_lazy ) {
         $content_html = '<div style="text-align:center; padding: 40px; color: #64748b; font-size: 15px;">No products match your filters.</div>';
     }
+    
+    wp_reset_postdata(); // Important: Reset Post Data to prevent bleeding into other queries
 
     if ( $is_lazy ) {
         $has_more = ( $paged < $products->max_num_pages );
@@ -416,11 +414,10 @@ function cppm_render_storefront() {
         <div class="cppm-sticky-header">
             
             <div class="cppm-search-container">
-                <form class="cppm-search-form" action="<?php echo esc_url( home_url( '/' ) ); ?>" method="get">
+                <div class="cppm-search-form cppm-trigger-search" style="cursor: pointer;">
                     <svg class="cppm-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="search" name="s" placeholder="Search for Courses, e-Books & More" required />
-                    <input type="hidden" name="post_type" value="product" />
-                </form>
+                    <input type="text" placeholder="Search for Courses, e-Books & More" readonly style="cursor:pointer;padding-left:36px;" />
+                </div>
             </div>
 
             <div class="cppm-nav-sort-container">
@@ -671,3 +668,4 @@ function cppm_render_storefront() {
     <?php
     return ob_get_clean();
 }
+

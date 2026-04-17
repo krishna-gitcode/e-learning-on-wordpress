@@ -239,3 +239,44 @@ function cppm_generate_certificate() {
         exit;
     }
 }
+
+// ==========================================
+// 5. COMMERCE LOGIC & PROTECTIONS (PHASE 1)
+// ==========================================
+
+// Fix Issue #6: Restrict Courses and E-Books to a maximum quantity of 1
+add_filter( 'woocommerce_is_sold_individually', 'cppm_restrict_virtual_qty', 10, 2 );
+function cppm_restrict_virtual_qty( $return, $product ) {
+    // If it's a virtual or downloadable product, it should only be bought once per order
+    if ( $product->is_virtual() || $product->is_downloadable() ) {
+        return true;
+    }
+
+    // Fallback: Check categories just in case
+    $terms = get_the_terms( $product->get_id(), 'product_cat' );
+    if ( $terms && ! is_wp_error( $terms ) ) {
+        foreach ( $terms as $term ) {
+            $slug = strtolower( $term->slug );
+            if ( strpos($slug, 'ebook') !== false || strpos($slug, 'e-book') !== false || $slug === 'music-course' || $slug === 'course' ) {
+                return true; 
+            }
+        }
+    }
+    
+    return $return;
+}
+
+// Fix Issue #17: Redirect Guest Users to Login Page when attempting to Checkout
+add_action( 'template_redirect', 'cppm_guest_checkout_redirect' );
+function cppm_guest_checkout_redirect() {
+    // If user is not logged in, and is trying to access the checkout page
+    if ( ! is_user_logged_in() && is_checkout() && ! is_wc_endpoint_url( 'order-pay' ) && ! is_wc_endpoint_url( 'order-received' ) ) {
+        
+        // Add a friendly notice
+        wc_add_notice( 'Please log in or register to complete your purchase and access your classroom.', 'notice' );
+        
+        // Redirect to the WooCommerce "My Account" page (which acts as the login/registration page)
+        wp_safe_redirect( wc_get_page_permalink( 'myaccount' ) );
+        exit;
+    }
+}

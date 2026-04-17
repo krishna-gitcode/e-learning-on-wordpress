@@ -61,3 +61,8 @@ require_once CPPM_PLUGIN_DIR . 'includes/cppm-student-dashboard.php';
 
 // Custom Storefront
 require_once CPPM_PLUGIN_DIR . 'includes/cppm-storefront.php';
+
+// Phase 3: The Great Page Overhaul (Split Architecture)
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-search-results.php';
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-single-product.php';
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-my-account.php';
