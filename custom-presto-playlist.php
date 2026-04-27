@@ -66,3 +66,8 @@ require_once CPPM_PLUGIN_DIR . 'includes/cppm-storefront.php';
 require_once CPPM_PLUGIN_DIR . 'includes/cppm-search-results.php';
 require_once CPPM_PLUGIN_DIR . 'includes/cppm-single-product.php';
 require_once CPPM_PLUGIN_DIR . 'includes/cppm-my-account.php';
+
+// For Google verification
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-compliance.php';
+
+require_once CPPM_PLUGIN_DIR . 'includes/cppm-instructor-portal.php';
