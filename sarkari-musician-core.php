@@ -1,15 +1,43 @@
 <?php
 /**
- * Plugin Name: Custom Presto Playlist Manager
- * Description: Version 24. Features: Builder-Proof Footer Injection, Premium UX, and Modular Architecture.
- * Version: 1.0
+ * Plugin Name: Sarkari Musician Core
+ * Plugin URI: https://sarkarimusician.store
+ * Description: The proprietary enterprise LMS, E-Commerce, and Music Notation engine powering Sarkari Musician.
+ * Version: 2.0.0
  * Author: Krishna Kumar
+ * Author URI: https://sarkarimusician.store
+ * Text Domain: sarkari-musician-core
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // Define plugin paths for easy requiring
 define( 'CPPM_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+
+// ==========================================
+// GITHUB AUTO-UPDATER ENGINE
+// ==========================================
+require_once plugin_dir_path( __FILE__ ) . 'updater/plugin-update-checker.php';
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
+
+$sarkariUpdateChecker = PucFactory::buildUpdateChecker(
+    'https://github.com/krishna-gitcode/sarkari-musician-core', // Replace with your exact GitHub Repo URL
+    __FILE__,
+    'sarkari-musician-core'
+);
+$sarkariUpdateChecker->setBranch('main');
+//$sarkariUpdateChecker->setAuthentication('');
+
+
+require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-theme-overrides.php';
+
+require_once plugin_dir_path( __FILE__ ) . 'admin/class-cppm-settings.php';
+
+require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-mock-membership.php';
+
+require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-mock-engine-admin.php';
+
+require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-mock-engine-frontend.php';
 
 // 1. Load Admin Settings & Custom Post Types
 require_once CPPM_PLUGIN_DIR . 'includes/admin-settings.php';

@@ -1,14 +1,16 @@
 <?php
-// Exit if accessed directly
-if ( ! defined( 'ABSPATH' ) ) {
-    exit;
-}
+/**
+ * Core: Automated Database Cleanup (Cron Jobs)
+ * Architecture: Pure Logic (No Assets)
+ */
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 // ==========================================
 // 1. SCHEDULE THE DAILY CLEANUP TASK
 // ==========================================
-// This registers a background "Cron Job" in WordPress to run once a day
-add_action( 'wp', 'cppm_schedule_daily_order_cleanup' );
+// Hooking to 'init' is much safer and faster than 'wp'
+add_action( 'init', 'cppm_schedule_daily_order_cleanup' );
 function cppm_schedule_daily_order_cleanup() {
     if ( ! wp_next_scheduled( 'cppm_daily_abandoned_order_sweep' ) ) {
         wp_schedule_event( time(), 'daily', 'cppm_daily_abandoned_order_sweep' );
@@ -20,6 +22,7 @@ function cppm_schedule_daily_order_cleanup() {
 // ==========================================
 add_action( 'cppm_daily_abandoned_order_sweep', 'cppm_execute_order_cleanup' );
 function cppm_execute_order_cleanup() {
+    
     // Only target orders that are Pending, Failed, or Cancelled
     // DO NOT target 'on-hold' because those are waiting for your manual UPI verification!
     $statuses_to_clean = array( 'wc-pending', 'wc-failed', 'wc-cancelled' );
@@ -51,9 +54,10 @@ function cppm_execute_order_cleanup() {
 // ==========================================
 // 3. CLEAN UP CRON ON PLUGIN DEACTIVATION
 // ==========================================
-// Good practice: remove the background job if you ever turn the plugin off
-register_deactivation_hook( dirname( __DIR__ ) . '/custom-presto-playlist.php', 'cppm_remove_cleanup_cron' );
-function cppm_remove_cleanup_cron() {
+// Safely remove the background job if you ever turn the plugin off
+// (Assuming your main plugin file is 'custom-presto-playlist.php' in the root directory)
+register_deactivation_hook( dirname( dirname( __FILE__ ) ) . '/custom-presto-playlist.php', 'cppm_remove_cron_job' );
+function cppm_remove_cron_job() {
     $timestamp = wp_next_scheduled( 'cppm_daily_abandoned_order_sweep' );
     if ( $timestamp ) {
         wp_unschedule_event( $timestamp, 'cppm_daily_abandoned_order_sweep' );

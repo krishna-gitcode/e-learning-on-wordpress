@@ -1,27 +1,26 @@
 <?php
-if ( ! defined( 'ABSPATH' ) ) exit;
+/**
+ * Core: Netflix-Style Video Player & Interactive Classroom
+ * Architecture: Modular / Asset Separated
+ */
+
+if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 // ==========================================
-// AJAX HANDLER: DELETE COMMENT
+// 1. AJAX HANDLER: DELETE COMMENT
 // ==========================================
 add_action( 'wp_ajax_cppm_delete_comment', 'cppm_ajax_delete_comment' );
 function cppm_ajax_delete_comment() {
     check_ajax_referer( 'cppm_dashboard_ajax_nonce', 'security' );
 
     $comment_id = isset($_POST['comment_id']) ? intval($_POST['comment_id']) : 0;
-    if ( !$comment_id ) {
-        wp_send_json_error("Invalid comment ID.");
-    }
+    if ( !$comment_id ) wp_send_json_error("Invalid comment ID.");
 
     $comment = get_comment($comment_id);
-    if ( !$comment ) {
-        wp_send_json_error("Comment not found.");
-    }
+    if ( !$comment ) wp_send_json_error("Comment not found.");
 
     $current_user_id = get_current_user_id();
-    if ( !$current_user_id ) {
-        wp_send_json_error("You must be logged in.");
-    }
+    if ( !$current_user_id ) wp_send_json_error("You must be logged in.");
 
     // SECURITY: Only allow deletion if user is the comment author OR an Administrator
     if ( $current_user_id != $comment->user_id && !current_user_can('manage_options') ) {
@@ -36,26 +35,52 @@ function cppm_ajax_delete_comment() {
     }
 }
 
-
 // ==========================================
-// COURSE PLAYLIST SHORTCODE
+// 2. COURSE PLAYLIST SHORTCODE
 // ==========================================
 add_shortcode( 'course_playlist', 'cppm_render_playlist' );
 function cppm_render_playlist( $atts ) {
-    $atts = shortcode_atts( array( 'id' => '' ), $atts );
-    if ( empty( $atts['id'] ) ) return 'Missing ID';
+    
+    // 1. DYNAMIC ROUTING: Check the URL first (e.g., ?course_id=88)
+    $playlist_id = isset( $_GET['course_id'] ) ? intval( $_GET['course_id'] ) : 0;
 
-    $playlist_id = intval( $atts['id'] );
+    // 2. FALLBACK: Check shortcode attribute if URL is empty
+    if ( ! $playlist_id ) {
+        $atts = shortcode_atts( array( 'id' => '' ), $atts );
+        $playlist_id = intval( $atts['id'] );
+    }
+
+    if ( empty( $playlist_id ) ) {
+        return '<div style="padding:40px; text-align:center; background:#f8fafc; border-radius:12px; border:1px solid #e2e8f0;"><h3 style="color:#0f172a; margin-top:0;">Course Not Found</h3><p>Please provide a valid Course ID in the URL.</p></div>';
+    }
+
     $videos = get_post_meta( $playlist_id, '_cppm_videos_array', true );
     $prod_id = get_post_meta( $playlist_id, '_cppm_required_product', true );
     $current_user = wp_get_current_user();
 
+    // 1. Auth Check
     if ( ! is_user_logged_in() ) return '<div style="padding:40px; text-align:center; background:#fff3f3; border-radius:12px;"><h3 style="color:#d32f2f; margin-top:0;">Locked</h3><p>Please log in to access this course.</p></div>';
+    
+    // 2. Enrollment Check
     if ( ! empty($prod_id) && function_exists('wc_customer_bought_product') ) {
-        if ( ! wc_customer_bought_product( $current_user->user_email, $current_user->ID, $prod_id ) ) return '<div style="padding:40px; text-align:center; background:#fff8e1; border-radius:12px;"><h3 style="color:#f57f17; margin-top:0;">Enrollment Required</h3><p>Purchase required.</p></div>';
+        if ( ! wc_customer_bought_product( $current_user->user_email, $current_user->ID, $prod_id ) && ! current_user_can('manage_options') ) {
+            return '<div style="padding:40px; text-align:center; background:#fff8e1; border-radius:12px;"><h3 style="color:#f57f17; margin-top:0;">Enrollment Required</h3><p>You must purchase this course to access it.</p></div>';
+        }
     }
-    if ( empty($videos) ) return 'No modules found.';
+    
+    if ( empty($videos) ) return '<div style="padding:40px; text-align:center;">No modules found.</div>';
 
+    // 3. ENQUEUE ASSETS
+    $plugin_url = plugin_dir_url( dirname( __FILE__ ) );
+    wp_enqueue_style( 'cppm-player-css', $plugin_url . 'assets/css/frontend-player.css', array(), '1.0.0' );
+    wp_enqueue_script( 'cppm-player-js', $plugin_url . 'assets/js/frontend-player.js', array(), '1.0.0', true );
+
+    wp_localize_script( 'cppm-player-js', 'cppmPlayerData', array(
+        'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
+        'ajaxNonce' => wp_create_nonce( 'cppm_dashboard_ajax_nonce' )
+    ));
+
+    // 4. Progress Logic
     $completed_data = get_user_meta( $current_user->ID, '_cppm_completed_videos', true );
     $completed_videos = isset( $completed_data[$playlist_id] ) ? $completed_data[$playlist_id] : array();
     $total_vids = count($videos);
@@ -79,107 +104,15 @@ function cppm_render_playlist( $atts ) {
     $uid = uniqid('px_');
 
     ob_start();
+
+    if ( ! empty( $custom_css ) ) {
+        echo '<style>' . wp_strip_all_tags( $custom_css ) . '</style>';
+    }
+    
+    
     ?>
-    <style>
-        /* THEME COMMENT KILL SWITCH: Hides default theme comments entirely on this page */
-        #comments, #respond, .comments-area, .comment-respond, .post-comments { display: none !important; }
 
-        #playlist-<?php echo $uid; ?> { 
-            --brand: <?php echo $ui_brand; ?>; 
-            --active-bg: <?php echo $ui_active_bg; ?>; 
-            --bg-main: #ffffff; --bg-sec: #f9fafb; --bg-hover: #f3f4f6;
-            --text-main: #111827; --text-sec: #6b7280; --border: #e5e7eb;
-            --input-bg: transparent;
-            display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 30px; font-family: system-ui, sans-serif; margin-top:30px; transition: background 0.3s, color 0.3s; 
-        }
-
-        #playlist-<?php echo $uid; ?>.cppm-dark-mode {
-            --bg-main: #111827; --bg-sec: #1f2937; --bg-hover: #374151;
-            --text-main: #f9fafb; --text-sec: #9ca3af; --border: #374151;
-            --active-bg: #374151; --input-bg: #1f2937;
-        }
-
-        #playlist-<?php echo $uid; ?>.cppm-theater-mode { grid-template-columns: 1fr; }
-        #playlist-<?php echo $uid; ?>.cppm-theater-mode .cppm-sidebar { display: none; }
-        
-        .cppm-player-container { min-width: 0; position: sticky; top: 0px; position: relative; }
-        .cppm-video-box { position: relative; }
-        
-        .cppm-video-frame { background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.1); position: relative; transition:0.3s; border: 1px solid var(--border); display: flex; flex-direction: column; }
-        .cppm-player-slide { width: 100%; aspect-ratio: 16 / 9; }
-        .cppm-player-slide iframe, .cppm-player-slide video { width: 100%; height: 100%; border: none; }
-
-        .cppm-auto-advance-toast { position: absolute; bottom: 20px; right: 20px; background: rgba(0,0,0,0.85); color: #fff; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 10px; z-index: 999; opacity: 0; transform: translateY(10px); transition: 0.3s ease; pointer-events: none; }
-        .cppm-auto-advance-toast.show { opacity: 1; transform: translateY(0); }
-        .cppm-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: cppm-spin 1s linear infinite; }
-        @keyframes cppm-spin { to { transform: rotate(360deg); } }
-
-        .cppm-sidebar { min-width: 0; background: var(--bg-main); border-radius: 12px; border: 1px solid var(--border); display: flex; flex-direction: column; max-height: calc(100vh - 40px); transition: 0.3s; }
-        .cppm-progress-header { padding: 20px; border-bottom: 1px solid var(--border); }
-        .cppm-bar-bg { background: var(--bg-sec); height: 8px; border-radius: 4px; overflow: hidden; margin-top:10px; border: 1px solid var(--border); }
-        .cppm-bar-fill { background: var(--brand); height: 100%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-        
-        .cppm-cert-btn { display:block; text-align:center; padding:12px; background:#10b981; color:#fff; text-decoration:none; font-weight:bold; border-radius:8px; margin-top:15px; transition:0.2s; box-shadow:0 4px 6px rgba(16,185,129,0.2); }
-        .cppm-cert-btn:hover { background:#059669; transform:translateY(-2px); color:#fff; }
-
-        .cppm-search-wrap { padding: 15px 20px; border-bottom: 1px solid var(--border); }
-        .cppm-course-search { width: 100%; padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-sec); color: var(--text-main); font-size: 14px; outline: none; transition: 0.2s; font-family: inherit; box-sizing: border-box; }
-        .cppm-course-search:focus { border-color: var(--brand); background: var(--bg-main); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-
-        .cppm-list { list-style: none; padding: 10px; margin: 0; overflow-y: auto; }
-        .cppm-item { width: 100%; text-align: left; padding: 12px 15px; cursor: pointer; background: transparent; border: none; border-radius: 8px; display: flex; align-items: center; gap: 12px; margin-bottom:4px; font-size:15px; color: var(--text-main); transition: 0.2s;}
-        .cppm-item:hover { background: var(--bg-hover); }
-        .cppm-item.active { background: var(--active-bg); color: var(--brand); font-weight: 600; border: 1px solid var(--border); }
-        
-        .cppm-header-actions { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 15px; color: var(--text-main); }
-        .cppm-btn-group { display: flex; gap: 10px; }
-        .cppm-action-btn { background: var(--brand); color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .cppm-action-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.15); }
-        
-        .cppm-utility-btn { background: var(--bg-main); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; color: var(--text-main); transition: 0.2s; display:flex; align-items:center; gap:5px; font-weight:bold; }
-        .cppm-utility-btn:hover { background: var(--bg-hover); }
-
-        .cppm-notes-area { margin-top: 30px; padding: 25px; background: var(--bg-main); border-radius: 12px; border: 1px solid var(--border); transition:0.3s; }
-        .cppm-timestamp-link { transition: 0.2s; }
-
-        .cppm-discussion-area { margin-top: 30px; padding: 30px; background: var(--bg-main); border-radius: 12px; border: 1px solid var(--border); box-sizing: border-box; transition:0.3s; }
-        
-        .cppm-yt-form-row { display: flex; gap: 16px; margin-bottom: 20px; align-items: flex-start; }
-        .cppm-yt-avatar img { border-radius: 50%; width: 40px; height: 40px; object-fit: cover; }
-        .cppm-yt-input-container { flex: 1; position: relative; min-width: 0; }
-        .cppm-yt-textarea { width: 100%; border: none; border-bottom: 1px solid var(--border); padding: 5px 0; font-family: inherit; font-size: 15px; resize: none; overflow: hidden; background: var(--input-bg); outline: none; transition: 0.3s; min-height: 28px; line-height: 1.4; color: var(--text-main); box-sizing: border-box; }
-        .cppm-yt-underline { position: absolute; bottom: 0; left: 50%; width: 0; height: 2px; background: var(--brand); transition: width 0.3s ease, left 0.3s ease; }
-        .cppm-yt-textarea:focus + .cppm-yt-underline { width: 100%; left: 0; }
-        
-        .cppm-yt-form-actions { display: none; justify-content: flex-end; gap: 10px; margin-top: 10px; }
-        .cppm-yt-form-actions.active { display: flex; }
-        .cppm-yt-cancel { background: transparent; border: none; font-weight: 600; cursor: pointer; padding: 8px 16px; border-radius: 18px; color: var(--text-main); font-size:14px; }
-        .cppm-yt-cancel:hover { background: var(--bg-hover); }
-        .cppm-yt-submit { background: var(--bg-hover); color: var(--text-sec); border: none; padding: 8px 16px; border-radius: 18px; font-weight: 600; cursor: not-allowed; transition: 0.2s; font-size:14px; }
-        
-        .cppm-yt-comment { display: flex; gap: 16px; margin-bottom: 24px; animation: cppmFadeIn 0.4s ease forwards; transition: opacity 0.3s ease; }
-        .cppm-yt-comment-header { margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
-        .cppm-yt-author { font-weight: 600; color: var(--text-main); font-size: 14px; }
-        .cppm-yt-time { font-size: 12px; color: var(--text-sec); }
-        .cppm-yt-text { font-size: 15px; color: var(--text-main); line-height: 1.5; margin-bottom: 8px; word-wrap: break-word; }
-        .cppm-yt-actions-row { display: flex; align-items: center; color: var(--text-sec); font-size: 13px; font-weight: 600; width: 100%; }
-        .cppm-yt-badge { background: var(--bg-sec); color: var(--text-sec); border: 1px solid var(--border); font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; margin-bottom: 8px; display: inline-block; }
-        
-        @keyframes cppmFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @media (max-width: 768px) { 
-            #playlist-<?php echo $uid; ?> { display: flex; flex-direction: column; gap: 0; } 
-            .cppm-player-container { display: contents; }
-            .cppm-video-box { order: 1; }
-            .cppm-sidebar { order: 2; margin-top: 30px; }
-            .cppm-notes-area { order: 3; margin-top: 30px; }
-            .cppm-discussion-area { order: 4; margin-top: 30px; }
-            .cppm-ux-theater { display: none !important; } 
-        }
-
-        <?php echo $custom_css; ?>
-    </style>
-
-    <div id="playlist-<?php echo $uid; ?>" class="cppm-container" data-uid="<?php echo $uid; ?>" data-pid="<?php echo $playlist_id; ?>" data-total="<?php echo $total_vids; ?>">
+    <div id="playlist-<?php echo $uid; ?>" class="cppm-container" data-uid="<?php echo $uid; ?>" data-pid="<?php echo $playlist_id; ?>" data-total="<?php echo $total_vids; ?>" style="--brand: <?php echo esc_attr($ui_brand); ?>; --active-bg: <?php echo esc_attr($ui_active_bg); ?>;">
         <input type="hidden" id="cppm-active-index-<?php echo $uid; ?>" value="<?php echo $last_vid; ?>">
         
         <div class="cppm-player-container">
@@ -189,7 +122,6 @@ function cppm_render_playlist( $atts ) {
                         <div class="cppm-player-slide" id="player-slide-<?php echo $uid . '-' . $index; ?>" style="display: <?php echo $index === $last_vid ? 'block' : 'none'; ?>;">
                             <?php 
                             $vid_val = trim($vid['url']);
-                            
                             if ( is_numeric($vid_val) ) {
                                 echo do_shortcode('[presto_player id="' . esc_attr($vid_val) . '"]');
                             } else {
@@ -352,458 +284,4 @@ function cppm_render_playlist( $atts ) {
     </div>
     <?php
     return ob_get_clean();
-}
-
-add_action('wp_footer', 'cppm_inject_global_javascript', 99);
-function cppm_inject_global_javascript() {
-    ?>
-    <script type="text/javascript">
-    document.addEventListener("DOMContentLoaded", function() {
-        
-        var ajaxUrl = "<?php echo esc_url( admin_url('admin-ajax.php') ); ?>";
-        // Nonce defined globally for JS actions within the player
-        var ajaxNonce = "<?php echo wp_create_nonce( 'cppm_dashboard_ajax_nonce' ); ?>";
-
-        var isDark = localStorage.getItem('cppm_theme') === 'dark';
-        var containers = document.querySelectorAll('.cppm-container');
-        containers.forEach(function(wrap) {
-            var uid = wrap.getAttribute('data-uid');
-            renderBookmarks(uid);
-            if (isDark) {
-                wrap.classList.add('cppm-dark-mode');
-                var btn = wrap.querySelector('.cppm-ux-darkmode');
-                if(btn) btn.innerText = '☀️';
-            }
-        });
-
-        function filterComments(uid, target) {
-            var wrap = document.getElementById('playlist-' + uid);
-            if(!wrap) return;
-            wrap.querySelectorAll('.cppm-custom-comment').forEach(function(c) {
-                var cIdx = c.getAttribute('data-video-index');
-                c.style.display = (cIdx == target || cIdx === 'all') ? 'flex' : 'none'; 
-            });
-        }
-
-        function renderBookmarks(uid) {
-            var notesArea = document.getElementById('cppm-notes-input-' + uid);
-            var bookmarksContainer = document.getElementById('cppm-bookmarks-' + uid);
-            if(!notesArea || !bookmarksContainer) return;
-            
-            var text = notesArea.value;
-            var regex = /\[(\d{1,2}):(\d{2})\]/g;
-            var match;
-            var stamps = [];
-            while ((match = regex.exec(text)) !== null) { 
-                if (!stamps.includes(match[0])) stamps.push(match[0]); 
-            }
-            var html = '';
-            stamps.forEach(function(stamp) {
-                var timeStr = stamp.replace('[', '').replace(']', '');
-                var parts = timeStr.split(':');
-                var totalSecs = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-                html += '<button type="button" class="cppm-timestamp-link" data-seek="'+totalSecs+'" style="background:var(--bg-hover); color:var(--brand); border:1px solid var(--border); padding:6px 12px; border-radius:6px; font-weight:600; cursor:pointer; margin-right:10px; margin-bottom:10px;">⏱ '+timeStr+'</button>';
-            });
-            if (html !== '') {
-                bookmarksContainer.innerHTML = '<div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--border);"><strong style="font-size:0.85rem; color:var(--text-sec); display:block; margin-bottom:12px;">Quick Jump Bookmarks:</strong>' + html + '</div>';
-            } else {
-                bookmarksContainer.innerHTML = '';
-            }
-        }
-
-        document.body.addEventListener('input', function(e) {
-            if (e.target.matches('.cppm-course-search')) {
-                var term = e.target.value.toLowerCase();
-                var wrap = e.target.closest('.cppm-container');
-                if(!wrap) return;
-                wrap.querySelectorAll('.cppm-item').forEach(function(item) {
-                    var titleText = item.innerText.toLowerCase();
-                    item.style.display = titleText.includes(term) ? 'flex' : 'none';
-                });
-            }
-            
-            if (e.target.matches('.cppm-yt-textarea')) {
-                e.target.style.height = 'auto';
-                e.target.style.height = (e.target.scrollHeight) + 'px';
-                
-                var form = e.target.closest('form');
-                var submitBtn = form.querySelector('.cppm-yt-submit');
-                if(submitBtn) {
-                    if(e.target.value.trim().length > 0) {
-                        submitBtn.style.background = 'var(--brand)';
-                        submitBtn.style.color = '#fff';
-                        submitBtn.style.cursor = 'pointer';
-                        submitBtn.disabled = false;
-                        
-                        var actions = form.querySelector('.cppm-yt-form-actions');
-                        if(actions) actions.classList.add('active');
-                    } else {
-                        submitBtn.style.background = 'var(--bg-hover)';
-                        submitBtn.style.color = 'var(--text-sec)';
-                        submitBtn.style.cursor = 'not-allowed';
-                        submitBtn.disabled = true;
-                    }
-                }
-            }
-        });
-
-        // ==========================================
-        // KEYDOWN LISTENER: Enter to Submit Comment
-        // ==========================================
-        document.body.addEventListener('keydown', function(e) {
-            if (e.target.matches('.cppm-yt-textarea')) {
-                // If Enter is pressed WITHOUT the shift key
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault(); 
-                    var form = e.target.closest('form');
-                    var submitBtn = form.querySelector('.cppm-yt-submit');
-                    
-                    if (submitBtn && !submitBtn.disabled) {
-                        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-                    }
-                }
-            }
-        });
-
-        document.body.addEventListener('click', function(e) {
-            
-            // ==========================================
-            // AJAX LISTENER: Delete Comment
-            // ==========================================
-            var deleteBtn = e.target.closest('.cppm-yt-delete');
-            if (deleteBtn) {
-                e.preventDefault();
-                if (!confirm("Are you sure you want to delete this comment?")) return;
-                
-                var cid = deleteBtn.getAttribute('data-cid');
-                var commentBox = deleteBtn.closest('.cppm-yt-comment');
-                var wrap = deleteBtn.closest('.cppm-container');
-                var uid = wrap.getAttribute('data-uid');
-
-                var fdDel = new FormData();
-                fdDel.append('action', 'cppm_delete_comment');
-                fdDel.append('comment_id', cid);
-                fdDel.append('security', ajaxNonce);
-
-                deleteBtn.innerText = "Deleting...";
-                deleteBtn.style.pointerEvents = "none";
-
-                fetch(ajaxUrl, { method: "POST", body: fdDel })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        // Smoothly fade out the comment
-                        commentBox.style.opacity = "0";
-                        setTimeout(() => { 
-                            commentBox.remove(); 
-                            
-                            // Update the counter
-                            var countEl = document.getElementById('cppm-comment-count-' + uid);
-                            if(countEl) {
-                                var currentCount = parseInt(countEl.innerText);
-                                if (currentCount > 0) countEl.innerText = currentCount - 1;
-                            }
-                        }, 300);
-                    } else {
-                        alert(data.data);
-                        deleteBtn.innerText = "Delete";
-                        deleteBtn.style.pointerEvents = "auto";
-                    }
-                })
-                .catch(err => {
-                    alert("Connection error.");
-                    deleteBtn.innerText = "Delete";
-                    deleteBtn.style.pointerEvents = "auto";
-                });
-            }
-
-            var darkBtn = e.target.closest('.cppm-ux-darkmode');
-            if (darkBtn) {
-                e.preventDefault();
-                var wrap = darkBtn.closest('.cppm-container');
-                if (wrap) {
-                    var isNowDark = wrap.classList.toggle('cppm-dark-mode');
-                    darkBtn.innerText = isNowDark ? '☀️' : '🌙';
-                    localStorage.setItem('cppm_theme', isNowDark ? 'dark' : 'light');
-                }
-            }
-
-            var switchBtn = e.target.closest('.cppm-switch-trigger');
-            if (switchBtn) {
-                e.preventDefault();
-                var wrap = switchBtn.closest('.cppm-container');
-                if(!wrap) return;
-                var uid = wrap.getAttribute('data-uid');
-                var pid = wrap.getAttribute('data-pid');
-                var target = switchBtn.getAttribute('data-target');
-                var title = switchBtn.getAttribute('data-title');
-
-                wrap.querySelectorAll('.cppm-switch-trigger').forEach(function(b){ b.classList.remove('active'); });
-                switchBtn.classList.add('active');
-
-                var doneBtn = document.getElementById('done-btn-' + uid);
-                var isDone = switchBtn.getAttribute('data-completed') === 'true';
-                if(doneBtn) {
-                    doneBtn.style.display = isDone ? 'none' : 'block';
-                    doneBtn.setAttribute('data-idx', target);
-                }
-
-                var titleEl = document.getElementById('cppm-active-title-' + uid);
-                var labelEl = document.getElementById('cppm-active-label-' + uid);
-                if(titleEl) titleEl.innerText = title;
-                if(labelEl) labelEl.innerText = 'Lesson ' + (parseInt(target) + 1);
-
-                var idxField = document.getElementById('cppm-active-index-' + uid);
-                if(idxField) idxField.value = target;
-                filterComments(uid, target);
-
-                var frame = document.getElementById('cppm-video-frame-' + uid);
-                if(frame) {
-                    var slides = frame.querySelectorAll('.cppm-player-slide');
-                    slides.forEach(function(slide) { slide.style.display = 'none'; });
-                    
-                    var targetSlide = document.getElementById('player-slide-' + uid + '-' + target);
-                    if(targetSlide) targetSlide.style.display = 'block';
-                }
-
-                var fdSave = new FormData();
-                fdSave.append("action", "cppm_save_last_video");
-                fdSave.append("playlist_id", pid);
-                fdSave.append("video_index", target);
-                fetch(ajaxUrl, { method: "POST", body: fdSave });
-            }
-
-            var theaterBtn = e.target.closest('.cppm-ux-theater');
-            if (theaterBtn) {
-                e.preventDefault();
-                var wrap = theaterBtn.closest('.cppm-container');
-                if(wrap) wrap.classList.toggle('cppm-theater-mode');
-            }
-
-            var doneBtn = e.target.closest('.cppm-ux-done');
-            if (doneBtn) {
-                e.preventDefault();
-                var wrap = doneBtn.closest('.cppm-container');
-                var uid = wrap.getAttribute('data-uid');
-                var pid = doneBtn.getAttribute('data-pid');
-                var idx = doneBtn.getAttribute('data-idx');
-                
-                doneBtn.style.display = 'none';
-                
-                var navBtn = document.getElementById("nav-" + uid + "-" + idx);
-                if(navBtn) navBtn.setAttribute('data-completed', 'true');
-
-                var dot = document.getElementById("dot-" + uid + "-" + idx);
-                if(dot) { dot.style.borderColor = '#10b981'; dot.style.background = '#10b981'; }
-                
-                var cLabel = document.getElementById("count-" + uid);
-                if(cLabel && wrap) {
-                    var cur = parseInt(cLabel.innerText) + 1;
-                    cLabel.innerText = cur;
-                    var total = parseInt(wrap.getAttribute('data-total'));
-                    var fill = document.getElementById("fill-" + uid);
-                    if(fill) fill.style.width = ((cur / total) * 100) + "%";
-
-                    if (cur === total) {
-                        var certBtn = document.getElementById("cppm-cert-btn-" + uid);
-                        if (certBtn) certBtn.style.display = 'block';
-
-                        var overlay = document.createElement('div');
-                        overlay.innerHTML = '<div style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:99999; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.85); backdrop-filter:blur(5px); animation: cppmFadeInOut 4s forwards;"><div style="text-align:center; transform:scale(0.8); animation: cppmPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;"><h1 style="font-size:5rem; margin:0;">🎉</h1><h2 style="color:#10b981; font-size:2.5rem; margin:10px 0; font-weight:800;">Course Completed!</h2><p style="color:#4b5563; font-size:1.2rem; font-weight:600;">Amazing work. You reached 100%.</p></div></div><style>@keyframes cppmFadeInOut { 0%{opacity:0;} 10%{opacity:1;} 80%{opacity:1;} 100%{opacity:0;} } @keyframes cppmPop { to {transform:scale(1);} }</style>';
-                        document.body.appendChild(overlay);
-                        setTimeout(function(){ overlay.remove(); }, 4000);
-                    }
-                }
-                
-                var fd = new FormData();
-                fd.append("action", "cppm_mark_completed");
-                fd.append("playlist_id", pid);
-                fd.append("video_index", idx);
-                fetch(ajaxUrl, { method: "POST", body: fd });
-            }
-
-            var tsLink = e.target.closest('.cppm-timestamp-link');
-            if (tsLink) {
-                e.preventDefault();
-                var wrap = tsLink.closest('.cppm-container');
-                var targetSeconds = parseInt(tsLink.getAttribute('data-seek'));
-                var frame = wrap.querySelector('.cppm-video-frame');
-                if (frame) {
-                    var player = frame.querySelector('presto-player');
-                    if (player && player.player && typeof player.player.play === 'function') {
-                        player.player.currentTime = targetSeconds;
-                        player.player.play();
-                        frame.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                }
-            }
-
-            var insertBtn = e.target.closest('.cppm-ux-timestamp');
-            if (insertBtn) {
-                e.preventDefault();
-                var wrap = insertBtn.closest('.cppm-container');
-                var uid = wrap.getAttribute('data-uid');
-                var notesArea = document.getElementById('cppm-notes-input-' + uid);
-                
-                var frame = wrap.querySelector('.cppm-video-frame');
-                if (frame && notesArea) {
-                    var player = frame.querySelector('presto-player');
-                    if (player && player.player) {
-                        var time = Math.floor(player.player.currentTime || 0);
-                        var min = Math.floor(time / 60);
-                        var sec = time % 60;
-                        var ts = '[' + min + ':' + (sec < 10 ? '0' : '') + sec + '] ';
-                        
-                        var cursorPos = notesArea.selectionStart || notesArea.value.length;
-                        var textBefore = notesArea.value.substring(0, cursorPos);
-                        var textAfter = notesArea.value.substring(cursorPos);
-                        notesArea.value = textBefore + ts + textAfter;
-                        notesArea.focus();
-                    } else {
-                        alert("Start the video first to grab a timestamp.");
-                    }
-                }
-            }
-
-            var saveNotesBtn = e.target.closest('.cppm-ux-save-notes');
-            if (saveNotesBtn) {
-                e.preventDefault();
-                var wrap = saveNotesBtn.closest('.cppm-container');
-                var uid = wrap.getAttribute('data-uid');
-                var pid = wrap.getAttribute('data-pid');
-                var notesArea = document.getElementById('cppm-notes-input-' + uid);
-                
-                var origText = saveNotesBtn.innerText;
-                saveNotesBtn.innerText = "Saving...";
-                saveNotesBtn.disabled = true;
-
-                var fd = new FormData();
-                fd.append('action', 'cppm_save_notes');
-                fd.append('playlist_id', pid);
-                fd.append('notes', notesArea.value);
-
-                fetch(ajaxUrl, { method: "POST", body: fd })
-                .then(function(res){ return res.json(); })
-                .then(function(data){
-                    saveNotesBtn.innerText = origText;
-                    saveNotesBtn.disabled = false;
-                    renderBookmarks(uid);
-                    
-                    var status = document.getElementById('cppm-notes-status-' + uid);
-                    if (status) {
-                        status.style.opacity = '1';
-                        setTimeout(function(){ status.style.opacity = '0'; }, 3000);
-                    }
-                });
-            }
-            
-            if (e.target.matches('.cppm-yt-cancel')) {
-                e.preventDefault();
-                var form = e.target.closest('form');
-                var txt = form.querySelector('.cppm-yt-textarea');
-                var btn = form.querySelector('.cppm-yt-submit');
-                if(txt) { txt.value = ''; txt.style.height = 'auto'; }
-                if(btn) { btn.style.background = 'var(--bg-hover)'; btn.style.color = 'var(--text-sec)'; btn.style.cursor = 'not-allowed'; btn.disabled = true; }
-                var actions = form.querySelector('.cppm-yt-form-actions');
-                if(actions) actions.classList.remove('active');
-            }
-        });
-
-        // AJAX Comments Handler
-        document.body.addEventListener('submit', function(e) {
-            var form = e.target;
-            
-            // Checks if it is our custom form class
-            if (form.matches('.cppm-ajax-comment-form')) {
-                e.preventDefault();
-                var wrap = form.closest('.cppm-container');
-                var uid = wrap.getAttribute('data-uid');
-                
-                var activeIdx = document.getElementById('cppm-active-index-' + uid).value;
-                var activeBtn = document.getElementById('nav-' + uid + '-' + activeIdx);
-                var activeTitle = activeBtn ? activeBtn.getAttribute('data-title') : '';
-
-                var submitBtn = form.querySelector('button[type="submit"]');
-                var origText = "Comment";
-                if(submitBtn) {
-                    origText = submitBtn.innerText;
-                    submitBtn.innerText = "Posting...";
-                    submitBtn.disabled = true;
-                }
-
-                var fd = new FormData(form);
-                fd.append('action', 'cppm_submit_comment');
-                fd.set('cppm_vid_index', activeIdx);
-                fd.set('cppm_vid_title', activeTitle);
-                
-                fetch(ajaxUrl, { method: "POST", body: fd })
-                .then(function(res){ return res.json(); })
-                .then(function(data){
-                    if(submitBtn) {
-                        submitBtn.innerText = origText;
-                        submitBtn.style.background = 'var(--bg-hover)';
-                        submitBtn.style.color = 'var(--text-sec)';
-                        submitBtn.style.cursor = 'not-allowed';
-                        submitBtn.disabled = true;
-                    }
-                    if(data.success) {
-                        var wrapList = document.getElementById('cppm-comments-wrapper-' + uid);
-                        var noMsg = document.getElementById('cppm-no-comments-msg-' + uid);
-                        if(noMsg) noMsg.remove();
-                        if(wrapList) wrapList.insertAdjacentHTML('afterbegin', data.data);
-                        
-                        var txt = form.querySelector('.cppm-yt-textarea');
-                        if(txt) { txt.value = ''; txt.style.height = 'auto'; }
-                        var actions = form.querySelector('.cppm-yt-form-actions');
-                        if(actions) actions.classList.remove('active');
-
-                        // Increment comment counter
-                        var countEl = document.getElementById('cppm-comment-count-' + uid);
-                        if(countEl) {
-                            countEl.innerText = parseInt(countEl.innerText) + 1;
-                        }
-                    } else {
-                        alert("Notice: " + data.data);
-                    }
-                }).catch(function(err){
-                    if(submitBtn) {
-                        submitBtn.innerText = origText;
-                        submitBtn.disabled = false;
-                    }
-                });
-            }
-        });
-
-        // Smart Auto-Advance
-        document.body.addEventListener('ended', function(e) {
-            var wrap = e.target.closest('.cppm-container');
-            if(!wrap) return;
-            
-            var frame = wrap.querySelector('.cppm-video-frame');
-            if (!frame || !frame.contains(e.target)) return; 
-
-            var uid = wrap.getAttribute('data-uid');
-            var totalVideos = parseInt(wrap.getAttribute('data-total'));
-            var currentIndex = parseInt(document.getElementById('cppm-active-index-' + uid).value);
-
-            var doneBtn = document.getElementById("done-btn-" + uid);
-            if(doneBtn && doneBtn.style.display !== 'none') {
-                doneBtn.click(); 
-            }
-
-            var nextIndex = currentIndex + 1;
-            if (nextIndex < totalVideos) {
-                var toast = document.getElementById("cppm-toast-" + uid);
-                if (toast) toast.classList.add('show');
-                setTimeout(function() {
-                    if (toast) toast.classList.remove('show');
-                    var nextBtn = document.getElementById("nav-" + uid + "-" + nextIndex);
-                    if(nextBtn) nextBtn.click(); 
-                }, 3000);
-            }
-        }, true); 
-
-    });
-    </script>
-    <?php
 }

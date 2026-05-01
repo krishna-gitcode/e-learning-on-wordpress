@@ -1,0 +1,98 @@
+/* ==========================================
+   ENROLLED COURSES GRID UI
+========================================== */
+.cppm-enrolled-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
+    gap: 30px !important;
+    width: 100% !important;
+    padding: 20px 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+}
+
+.cppm-enrolled-card {
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid #f3f4f6;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    text-decoration: none !important;
+    color: inherit !important;
+    height: 100%;
+}
+
+.cppm-enrolled-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.1);
+    border-color: #cbd5e1;
+}
+
+.cppm-enrolled-img-wrap {
+    position: relative;
+    width: 100%;
+    padding-top: 60%; /* Enforces consistent Aspect Ratio */
+    background: #f8fafc;
+}
+
+.cppm-enrolled-img-wrap img {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: cover;
+}
+
+.cppm-enrolled-badge {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: #10b981; /* Success Green */
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    box-shadow: 0 4px 10px rgba(16,185,129,0.3);
+    z-index: 2;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cppm-enrolled-content {
+    padding: 25px;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.cppm-enrolled-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.3;
+    margin: 0 0 20px 0;
+    font-family: 'Jost', 'Poppins', sans-serif;
+}
+
+.cppm-enrolled-btn {
+    margin-top: auto;
+    background: #f1f5f9;
+    color: #2563eb;
+    text-align: center;
+    padding: 12px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 15px;
+    transition: all 0.2s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+}
+
+.cppm-enrolled-card:hover .cppm-enrolled-btn {
+    background: #2563eb;
+    color: #ffffff;
+}

@@ -1,0 +1,49 @@
+/* ==========================================
+   TOP PRODUCTS MATRIX GRID UI
+========================================== */
+/* 1. Strict Flexbox Wrapper */
+.cppm-gutenberg-matrix {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 30px !important;
+    width: 100% !important;
+    padding: 20px 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    justify-content: flex-start !important;
+}
+
+/* 2. Force Cards into 3 Columns */
+.cppm-gutenberg-matrix .wp-block-group {
+    flex: 1 1 calc(33.333% - 30px) !important;
+    min-width: 280px !important;
+    max-width: calc(33.333% - 20px) !important;
+    margin: 0 !important;
+    transition: transform 0.3s ease, box-shadow 0.3s ease !important;
+    cursor: pointer;
+    border: 1px solid #e5e7eb; /* Subtle border to define cards */
+    border-radius: 12px; /* Match modern rounded aesthetics */
+    overflow: hidden;
+}
+
+/* 3. Hover Effects */
+.cppm-gutenberg-matrix .wp-block-group:hover {
+    transform: translateY(-5px) !important;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+}
+
+/* 4. Responsive Design (Tablet) */
+@media (max-width: 992px) {
+    .cppm-gutenberg-matrix .wp-block-group {
+        flex: 1 1 calc(50% - 30px) !important;
+        max-width: calc(50% - 15px) !important;
+    }
+}
+
+/* 5. Responsive Design (Mobile) */
+@media (max-width: 768px) {
+    .cppm-gutenberg-matrix .wp-block-group {
+        flex: 1 1 100% !important;
+        max-width: 100% !important;
+    }
+}

@@ -1,0 +1,82 @@
+/* Custom Branded WP-Login Screen for Instructors/Admins */
+body.login { 
+    background-color: #f1f5f9; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+}
+body.login div#login { 
+    padding: 0; 
+    width: 100%; 
+    max-width: 400px; 
+    margin: 0; 
+}
+body.login h1 a { 
+    background-image: none !important; 
+    width: 100%; 
+    text-indent: 0; 
+    font-size: 26px; 
+    font-weight: 800; 
+    color: #0f172a; 
+    text-decoration: none; 
+    text-align: center; 
+    display: block; 
+    margin-bottom: 25px; 
+}
+body.login form { 
+    background: #ffffff; 
+    border: 1px solid #e2e8f0; 
+    border-radius: 12px; 
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05); 
+    padding: 40px; 
+    margin-top: 0;
+}
+body.login form .input { 
+    width: 100%; 
+    padding: 14px; 
+    border: 1px solid #cbd5e1; 
+    border-radius: 8px; 
+    font-size: 16px; 
+    margin-top: 5px; 
+    box-sizing: border-box; 
+    box-shadow: none;
+}
+body.login form .input:focus {
+    border-color: #2874f0;
+    box-shadow: 0 0 0 3px rgba(40,116,240,0.1);
+}
+body.login form .button-primary { 
+    width: 100%; 
+    background: #2874f0; 
+    border: none; 
+    color: white; 
+    padding: 12px; 
+    border-radius: 8px; 
+    font-size: 16px; 
+    font-weight: 600; 
+    cursor: pointer; 
+    transition: 0.2s ease; 
+    margin-top: 15px;
+    float: none;
+    text-shadow: none;
+    box-shadow: 0 4px 12px rgba(40,116,240,0.2);
+}
+body.login form .button-primary:hover { 
+    background: #1d4ed8; 
+    transform: translateY(-1px);
+}
+body.login #backtoblog, body.login #nav { 
+    text-align: center; 
+    margin-top: 25px;
+    padding: 0;
+}
+body.login #backtoblog a, body.login #nav a { 
+    color: #64748b; 
+    font-weight: 600; 
+    transition: 0.2s; 
+    font-size: 14px;
+}
+body.login #backtoblog a:hover, body.login #nav a:hover { 
+    color: #2874f0; 
+}
