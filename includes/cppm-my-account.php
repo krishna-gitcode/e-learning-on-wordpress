@@ -166,15 +166,25 @@ function cppm_frontend_admin_reviews() {
     echo '</tbody></table></div>';
 }
 
-// 4.3 Master Sales Analytics (Native WC API - HPOS Compatible)
+// 4.3 Master Sales Analytics (OPTIMIZED WITH TRANSIENTS)
 add_action( 'woocommerce_account_admin-sales_endpoint', 'cppm_frontend_admin_sales' );
 function cppm_frontend_admin_sales() {
     if ( ! current_user_can('administrator') ) return;
     echo '<h3 class="cppm-page-title">Master Sales & Financial Analytics</h3>';
     
-    // Use native WooCommerce API so it works perfectly with modern HPOS databases
+    // 1. Check if we already have this data cached from the last hour
+    $cached_html = get_transient( 'cppm_admin_sales_report_html' );
+    
+    // If the cache exists, print it instantly and stop processing!
+    if ( false !== $cached_html ) {
+        echo $cached_html;
+        echo '<p style="font-size:11px; color:#94a3b8; text-align:right;">Data cached. Updates hourly.</p>';
+        return; 
+    }
+
+    // 2. If no cache, calculate the data (Reduced limit from 500 to 100 for safety)
     $orders = wc_get_orders(array(
-        'limit' => 500, // Fetch up to 500 recent orders
+        'limit'  => 100, // Reduced to prevent memory exhaustion
         'status' => array('completed', 'processing', 'on-hold')
     ));
 
@@ -187,7 +197,6 @@ function cppm_frontend_admin_sales() {
     $total_earned = 0;
     $product_tally = array();
 
-    // Process Orders via PHP API
     foreach($orders as $order) {
         $status = $order->get_status();
         $total = $order->get_total();
@@ -211,38 +220,39 @@ function cppm_frontend_admin_sales() {
         }
     }
 
-    // Sort Products by highest earnings
-    uasort($product_tally, function($a, $b) {
-        return $b['earned'] <=> $a['earned'];
-    });
+    uasort($product_tally, function($a, $b) { return $b['earned'] <=> $a['earned']; });
 
-    // Render Summary Cards
-    echo '<div class="cppm-stat-cards">
-            <div class="cppm-stat-card"><div class="cppm-stat-title">Total Valid Revenue</div><div class="cppm-stat-val" style="color:#16a34a;">₹'.number_format($total_earned, 2).'</div></div>
-            <div class="cppm-stat-card"><div class="cppm-stat-title">Completed Orders</div><div class="cppm-stat-val">'.$stats['completed']['count'].' <span style="font-size:12px; color:#64748b;">(₹'.number_format($stats['completed']['worth'], 2).')</span></div></div>
-            <div class="cppm-stat-card"><div class="cppm-stat-title">Processing Orders</div><div class="cppm-stat-val">'.$stats['processing']['count'].' <span style="font-size:12px; color:#64748b;">(₹'.number_format($stats['processing']['worth'], 2).')</span></div></div>
-            <div class="cppm-stat-card"><div class="cppm-stat-title">On Hold Orders</div><div class="cppm-stat-val" style="color:#ea580c;">'.$stats['on-hold']['count'].' <span style="font-size:12px; color:#64748b;">(₹'.number_format($stats['on-hold']['worth'], 2).')</span></div></div>
-          </div>';
-
-    echo '<h4 style="font-size: 16px; margin: 30px 0 15px 0;">Product Performance & Buyers</h4>';
-    echo '<div class="cppm-table-wrap"><table class="cppm-admin-table"><thead><tr><th>Product Name</th><th>Units Sold</th><th>Total Revenue</th><th>Recent Buyers</th></tr></thead><tbody>';
-    
+    // 3. Build the HTML output into a variable instead of echoing it directly
+    ob_start();
+    ?>
+    <div class="cppm-stat-cards">
+        <div class="cppm-stat-card"><div class="cppm-stat-title">Total Valid Revenue</div><div class="cppm-stat-val" style="color:#16a34a;">₹<?php echo number_format($total_earned, 2); ?></div></div>
+        <div class="cppm-stat-card"><div class="cppm-stat-title">Completed Orders</div><div class="cppm-stat-val"><?php echo $stats['completed']['count']; ?> <span style="font-size:12px; color:#64748b;">(₹<?php echo number_format($stats['completed']['worth'], 2); ?>)</span></div></div>
+        <div class="cppm-stat-card"><div class="cppm-stat-title">Processing Orders</div><div class="cppm-stat-val"><?php echo $stats['processing']['count']; ?> <span style="font-size:12px; color:#64748b;">(₹<?php echo number_format($stats['processing']['worth'], 2); ?>)</span></div></div>
+        <div class="cppm-stat-card"><div class="cppm-stat-title">On Hold Orders</div><div class="cppm-stat-val" style="color:#ea580c;"><?php echo $stats['on-hold']['count']; ?> <span style="font-size:12px; color:#64748b;">(₹<?php echo number_format($stats['on-hold']['worth'], 2); ?>)</span></div></div>
+    </div>
+    <h4 style="font-size: 16px; margin: 30px 0 15px 0;">Product Performance & Buyers (Last 100 Orders)</h4>
+    <div class="cppm-table-wrap"><table class="cppm-admin-table"><thead><tr><th>Product Name</th><th>Units Sold</th><th>Total Revenue</th><th>Recent Buyers</th></tr></thead><tbody>
+    <?php
     if(!empty($product_tally)) {
         $count = 0;
         foreach($product_tally as $name => $data) {
-            if($count >= 20) break; // Limit to top 20
+            if($count >= 20) break; 
             $buyers_list = implode(', ', array_unique($data['buyers']));
             $buyers_trim = wp_trim_words($buyers_list, 8, ' & more...');
-            echo '<tr>
-                    <td><strong>' . esc_html($name) . '</strong></td>
-                    <td><span class="cppm-badge cppm-badge-info">' . intval($data['count']) . ' Sold</span></td>
-                    <td><strong>₹' . number_format(floatval($data['earned']), 2) . '</strong></td>
-                    <td style="font-size:12px; color:#64748b;">' . esc_html($buyers_trim) . '</td>
-                  </tr>';
+            echo '<tr><td><strong>' . esc_html($name) . '</strong></td><td><span class="cppm-badge cppm-badge-info">' . intval($data['count']) . ' Sold</span></td><td><strong>₹' . number_format(floatval($data['earned']), 2) . '</strong></td><td style="font-size:12px; color:#64748b;">' . esc_html($buyers_trim) . '</td></tr>';
             $count++;
         }
     } else { echo '<tr><td colspan="4" style="text-align:center; padding:30px;">No sales data yet.</td></tr>'; }
     echo '</tbody></table></div>';
+    
+    $final_html = ob_get_clean();
+    
+    // 4. Save this calculated HTML in the database for 1 Hour (3600 seconds)
+    set_transient( 'cppm_admin_sales_report_html', $final_html, 3600 );
+    
+    // Print it for the first time
+    echo $final_html;
 }
 
 // 4.4 Global Order Management

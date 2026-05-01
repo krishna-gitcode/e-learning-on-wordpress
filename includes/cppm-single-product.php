@@ -234,3 +234,191 @@ function cppm_single_product_styles() {
     </style>
     <?php
 }
+
+// ==========================================
+// 1. DYNAMIC PRODUCT FAVICON
+// ==========================================
+add_filter( 'get_site_icon_url', 'cppm_dynamic_product_favicon', 99, 3 );
+function cppm_dynamic_product_favicon( $url, $size, $blog_id ) {
+    // Check if we are on a single WooCommerce product page
+    if ( function_exists('is_product') && is_product() ) {
+        global $post;
+        if ( $post && has_post_thumbnail( $post->ID ) ) {
+            // Grab the square thumbnail of the product (perfect for favicons)
+            $product_thumb_url = get_the_post_thumbnail_url( $post->ID, 'thumbnail' );
+            if ( $product_thumb_url ) {
+                return $product_thumb_url; // Override the default logo
+            }
+        }
+    }
+    return $url; // Return default logo on all other pages
+}
+
+// ==========================================
+// 2. FLOATING PRODUCT IMAGE SHARE ICON
+// ==========================================
+// We hook into 'woocommerce_product_thumbnails' because it runs inside the relative image gallery wrapper
+add_action( 'woocommerce_product_thumbnails', 'cppm_floating_share_icon', 99 );
+function cppm_floating_share_icon() {
+    global $product;
+    if ( ! $product ) return;
+    
+    $product_url   = get_permalink( $product->get_id() );
+    $product_title = $product->get_name();
+    ?>
+    
+    <button id="cppm-share-btn" class="cppm-floating-share" data-url="<?php echo esc_url($product_url); ?>" data-title="<?php echo esc_attr($product_title); ?>" aria-label="Share this product">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"></circle>
+            <circle cx="6" cy="12" r="3"></circle>
+            <circle cx="18" cy="19" r="3"></circle>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+        </svg>
+    </button>
+    
+    <div id="cppm-share-toast" class="cppm-share-toast">Link Copied!</div>
+
+    <style>
+        /* 1. Ensure the WooCommerce gallery wrapper acts as the anchor */
+        .woocommerce-product-gallery { position: relative !important; }
+
+        /* 2. The Circular Frosted Glass Button */
+        .cppm-floating-share {
+            position: absolute;
+            top: 60px; /* Positions it perfectly below the native Woo Zoom icon (which is usually at 10px) */
+            right: 15px; 
+            z-index: 100;
+            width: 42px;
+            height: 42px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #475569;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 0;
+        }
+        
+        .cppm-floating-share:hover {
+            background: #ffffff;
+            color: #2874f0;
+            transform: scale(1.08);
+            box-shadow: 0 6px 14px rgba(40,116,240,0.15);
+        }
+        
+        .cppm-floating-share:active { transform: scale(0.95); }
+
+        /* 3. The Animated "Copied" Tooltip (Desktop Fallback) */
+        .cppm-share-toast {
+            position: absolute;
+            top: 64px;
+            right: 65px; /* Pops out directly to the left of the button */
+            z-index: 99;
+            background: #16a34a;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 6px;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateX(10px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 6px rgba(22,163,74,0.2);
+        }
+        
+        .cppm-share-toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const shareBtn = document.getElementById('cppm-share-btn');
+            const shareToast = document.getElementById('cppm-share-toast');
+            
+            if (shareBtn) {
+                shareBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const url = this.getAttribute('data-url');
+                    const title = this.getAttribute('data-title');
+                    
+                    // 1. Native App Share Menu (iOS/Android)
+                    if (navigator.share) {
+                        navigator.share({
+                            title: title,
+                            url: url
+                        }).catch(console.error);
+                    } 
+                    // 2. Desktop Fallback (Copy to Clipboard with Animation)
+                    else {
+                        navigator.clipboard.writeText(url).then(() => {
+                            shareToast.classList.add('show');
+                            setTimeout(() => { shareToast.classList.remove('show'); }, 2000);
+                        });
+                    }
+                });
+            }
+        });
+    </script>
+    <?php
+}
+
+// ==========================================
+// 3. FORCE LARGE IMAGE PREVIEWS FOR WHATSAPP/SOCIALS
+// ==========================================
+add_action( 'wp_head', 'cppm_force_large_social_previews', 5 );
+function cppm_force_large_social_previews() {
+    // Only run this on single product pages
+    if ( function_exists('is_product') && is_product() ) {
+        global $post;
+        $product = wc_get_product( $post->ID );
+        if ( ! $product ) return;
+
+        $title = $product->get_name();
+        
+        // Grab a clean, short description (fallback to full description if short is empty)
+        $raw_desc = $product->get_short_description() ? $product->get_short_description() : $product->get_description();
+        $description = wp_trim_words( wp_strip_all_tags( $raw_desc ), 20, '...' );
+        $url = get_permalink( $product->get_id() );
+        
+        // Get the FULL size image to trigger the Large Banner layout
+        $image_id = $product->get_image_id();
+        if ( $image_id ) {
+            $image_data = wp_get_attachment_image_src( $image_id, 'full' );
+            if ( $image_data ) {
+                $image_url    = $image_data[0];
+                $image_width  = $image_data[1];
+                $image_height = $image_data[2];
+
+                // 1. WhatsApp / Facebook Open Graph Tags
+                echo "\n";
+                echo '<meta property="og:title" content="' . esc_attr( $title ) . '" />' . "\n";
+                echo '<meta property="og:description" content="' . esc_attr( $description ) . '" />' . "\n";
+                echo '<meta property="og:url" content="' . esc_url( $url ) . '" />' . "\n";
+                echo '<meta property="og:type" content="product" />' . "\n";
+                echo '<meta property="og:image" content="' . esc_url( $image_url ) . '" />' . "\n";
+                echo '<meta property="og:image:secure_url" content="' . esc_url( $image_url ) . '" />' . "\n";
+                
+                // Crucial: Providing width & height tells WhatsApp it's a large image before it even downloads it
+                echo '<meta property="og:image:width" content="' . esc_attr( $image_width ) . '" />' . "\n";
+                echo '<meta property="og:image:height" content="' . esc_attr( $image_height ) . '" />' . "\n";
+                
+                // 2. Twitter / iMessage Cards (Forces the large banner layout)
+                echo '<meta name="twitter:card" content="summary_large_image" />' . "\n";
+                echo '<meta name="twitter:title" content="' . esc_attr( $title ) . '" />' . "\n";
+                echo '<meta name="twitter:description" content="' . esc_attr( $description ) . '" />' . "\n";
+                echo '<meta name="twitter:image" content="' . esc_url( $image_url ) . '" />' . "\n";
+                echo "\n";
+            }
+        }
+    }
+}

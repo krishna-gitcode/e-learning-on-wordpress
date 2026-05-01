@@ -32,7 +32,14 @@ function cppm_ajax_load_dashboard_tab() {
 add_shortcode( 'cppm_student_dashboard', 'cppm_render_udemy_classroom' );
 function cppm_render_udemy_classroom() {
     if ( ! is_user_logged_in() ) {
-        return '<div style="text-align:center; padding: 100px 20px;"><h2>Your Classroom Awaits</h2><p>Please log in to access your learning materials.</p><a href="' . wp_login_url( get_permalink() ) . '" style="display:inline-block; margin-top:20px; background:#1c1d1f; color:#fff; padding:12px 24px; text-decoration:none; font-weight:bold; border-radius: 8px;">Log In</a></div>';
+        // Fetch the WooCommerce My Account page dynamically
+        $login_url = function_exists('wc_get_page_permalink') ? wc_get_page_permalink( 'myaccount' ) : site_url('/my-account/');
+        
+        return '<div style="text-align:center; padding: 100px 20px;">
+                    <h2>Your Classroom Awaits</h2>
+                    <p>Please log in to access your learning materials.</p>
+                    <a href="' . esc_url( $login_url ) . '" style="display:inline-block; margin-top:20px; background:#2874f0; color:#fff; padding:12px 24px; text-decoration:none; font-weight:bold; border-radius: 8px; box-shadow: 0 4px 10px rgba(40,116,240,0.2);">Log In</a>
+                </div>';
     }
 
     ob_start();

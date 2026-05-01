@@ -119,6 +119,8 @@ function cppm_render_web_book_editor() {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/abcjs/6.2.2/abcjs-basic-min.js"></script>
 
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/abcjs/6.2.2/abcjs-audio.min.css">
+
     <style>
         .cppm-portal-nav a { text-decoration: none !important; box-shadow: none !important; border-bottom: 3px solid transparent !important; }
         .cppm-portal-nav a.active { border-bottom-color: #2874f0 !important; }
@@ -195,9 +197,18 @@ function cppm_render_web_book_editor() {
         </div>
     </div>
 
-    <div id="cppm-preview-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); z-index:10000000; align-items:flex-start; justify-content:center; overflow-y:auto; padding: 40px 20px;">
-        <div style="position:relative; width: 210mm; min-height: 297mm; background: #ffffff; box-shadow: 0 10px 40px rgba(0,0,0,0.5); padding: 0; margin: 0 auto 40px auto; border-radius: 4px;">
-            <button onclick="document.getElementById('cppm-preview-modal').style.display='none'" style="position:absolute; top: -45px; right: 0; background: #ef4444; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size:14px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">❌ Close Preview</button>
+    <div id="cppm-preview-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.6); backdrop-filter: blur(8px); z-index:10000000; flex-direction: column; align-items:center; overflow-y:auto;">
+
+        <div style="position: sticky; top: 0; width: 100%; background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.05); z-index: 10;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span style="background: #2874f0; color: #fff; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 12px; letter-spacing: 1px;">PREVIEW MODE</span>
+                <span style="color: #64748b; font-size: 16px; border-left: 2px solid #e2e8f0; padding-left: 15px; font-weight: 600;" id="cppm-preview-header-title">Loading...</span>
+            </div>
+            
+            <button onclick="document.getElementById('cppm-preview-modal').style.display='none'" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size:14px; transition: 0.2s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">Exit Preview ✕</button>
+        </div>
+
+        <div style="position:relative; width: 210mm; min-height: 297mm; background: #ffffff; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3); border: 1px solid #cbd5e1; padding: 0; margin: 40px auto 80px auto; border-radius: 4px; overflow: hidden;">
             <div id="cppm-preview-content-zone" style="font-family: Helvetica, Arial, sans-serif; font-size: 16px; color: #0f172a; box-sizing: border-box; width: 100%; min-height: 100%;"></div>
         </div>
     </div>
@@ -242,10 +253,11 @@ function cppm_render_web_book_editor() {
             }
         }
 
-// --- FIXED: RENDER AFTER MODAL OPENS TO FORCE WIDTH STRETCH ---
+// --- FIXED: AUDIO + VISUAL RENDERING ENGINE ---
 function previewCurrentPage() {
     saveEditorToCurrentPage();
-    
+    // Update the dynamic header title
+    document.getElementById('cppm-preview-header-title').innerText = document.getElementById('cppm-book-title').value || 'Untitled Book';
     let content = tinymce.get('cppm-tinymce-editor').getContent();
     let previewZone = document.getElementById('cppm-preview-content-zone');
     
@@ -257,10 +269,8 @@ function previewCurrentPage() {
     previewZone.style.padding = `${mt}mm ${mr}mm ${mb}mm ${ml}mm`;
     previewZone.innerHTML = content;
     
-    // CRITICAL FIX 1: Open the modal FIRST so the container has a physical width > 0
     document.getElementById('cppm-preview-modal').style.display = 'flex';
     
-    // CRITICAL FIX 2: Wait 50ms for the browser to paint the full A4 page, THEN render ABC
     setTimeout(() => {
         let musicBlocks = previewZone.querySelectorAll('.music-notation-block');
         musicBlocks.forEach((block, index) => {
@@ -268,24 +278,71 @@ function previewCurrentPage() {
             let cleanAbcText = block.innerText || block.textContent;
             cleanAbcText = cleanAbcText.replace(/(\r\n|\n|\r)+/g, '\n').trim();
             
-            let uniqueId = 'cppm-preview-music-' + index;
-            let newContainer = document.createElement('div');
-            newContainer.id = uniqueId;
-            newContainer.style.width = '100%'; // Reaches 100% of the newly visible A4 page
-            newContainer.style.margin = '20px 0';
+            // 1. CREATE A SEAMLESS WRAPPER CONTAINER
+            let wrapperContainer = document.createElement('div');
+            wrapperContainer.style.width = '100%';
+            wrapperContainer.style.margin = '20px 0 40px 0'; // Adds breathing room
+            wrapperContainer.style.background = 'transparent'; // Remove old gray box
+            wrapperContainer.style.border = 'none';
             
-            block.parentNode.replaceChild(newContainer, block);
+            // 2. CREATE THE PREMIUM AUDIO CONTROL DIV
+            let audioId = 'cppm-preview-audio-' + index;
+            let audioContainer = document.createElement('div');
+            audioContainer.id = audioId;
+            audioContainer.style.background = '#f8fafc'; // Very light silver
+            audioContainer.style.border = '1px solid #e2e8f0';
+            audioContainer.style.borderRadius = '8px';
+            audioContainer.style.padding = '8px 15px';
+            audioContainer.style.marginBottom = '25px'; // Spacing between player and notes
+            wrapperContainer.appendChild(audioContainer);
+
+            // 3. CREATE THE VISUAL MUSIC DIV
+            let visualId = 'cppm-preview-music-' + index;
+            let visualContainer = document.createElement('div');
+            visualContainer.id = visualId;
+            wrapperContainer.appendChild(visualContainer);
             
-            // Render with explicit stretch commands now that width is known
-            ABCJS.renderAbc(uniqueId, cleanAbcText, { 
+            // Replace the raw text block with our new Audio/Visual Wrapper
+            block.parentNode.replaceChild(wrapperContainer, block);
+            
+            // 4. RENDER THE VISUALS (Keeping our perfect spacing rules)
+            let visualObj = ABCJS.renderAbc(visualId, cleanAbcText, { 
                 add_classes: true,
-                responsive: "resize",
-                format: { 
-                    stretchlast: true 
-                }
+                staffwidth: 650, 
+                wrap: { minSpacing: 3.5, maxSpacing: 5.5 },
+                format: { stretchlast: true }
             });
+            
+            // 5. INITIALIZE THE AUDIO SYNTHESIZER
+            if (ABCJS.synth.supportsAudio()) {
+                let synthControl = new ABCJS.synth.SynthController();
+                
+                // Mount the UI (Play button, progress bar, tempo control)
+                synthControl.load("#" + audioId, null, {
+                    displayLoop: true, 
+                    displayRestart: true, 
+                    displayPlay: true, 
+                    displayProgress: true, 
+                    displayWarp: true // Let's users slow down the tempo!
+                });
+                
+                // Connect the visuals to the soundfont library
+                let midiBuffer = new ABCJS.synth.CreateSynth();
+                midiBuffer.init({
+                    visualObj: visualObj[0],
+                    options: { 
+                        // High-quality GM soundfont CDN
+                        soundFontUrl: "https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/" 
+                    }
+                }).then(function () {
+                    // Ready to play!
+                    synthControl.setTune(visualObj[0], false, { chordsOff: true });
+                }).catch(function (error) {
+                    console.warn("Audio failed to load:", error);
+                });
+            }
         });
-    }, 50);
+    }, 100); 
 }
 
         tinymce.init({
