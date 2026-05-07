@@ -1,10 +1,8 @@
 <?php
-/**
- * Core: Custom UPI Payment Gateway
- * Architecture: Modular / Asset Separated
- */
-
-if ( ! defined( 'ABSPATH' ) ) { exit; }
+// Exit if accessed directly
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
 
 // ==========================================
 // 1. REGISTER THE CUSTOM UPI GATEWAY
@@ -16,31 +14,19 @@ function cppm_add_upi_gateway_class( $gateways ) {
 }
 
 // ==========================================
-// 2. ENQUEUE CHECKOUT ASSETS
-// ==========================================
-add_action( 'wp_enqueue_scripts', 'cppm_enqueue_upi_assets', 999 );
-function cppm_enqueue_upi_assets() {
-    // Only load these files on the checkout page
-    if ( function_exists('is_checkout') && is_checkout() ) {
-        $plugin_url = plugin_dir_url( dirname( __FILE__ ) );
-        wp_enqueue_style( 'cppm-upi-checkout-css', $plugin_url . 'assets/css/checkout-upi.css', array(), '1.0.0' );
-        wp_enqueue_script( 'cppm-upi-checkout-js', $plugin_url . 'assets/js/checkout-upi.js', array('jquery'), '1.0.0', true );
-    }
-}
-
-// ==========================================
-// 3. BUILD THE GATEWAY CLASS
+// 2. BUILD THE GATEWAY CLASS
 // ==========================================
 add_action( 'plugins_loaded', 'cppm_init_upi_gateway' );
 function cppm_init_upi_gateway() {
     
+    // Ensure WooCommerce is active before declaring the class
     if ( ! class_exists( 'WC_Payment_Gateway' ) ) return;
 
     class WC_Gateway_Custom_UPI extends WC_Payment_Gateway {
         
         public function __construct() {
             $this->id                 = 'custom_upi';
-            $this->has_fields         = true; // Required for our custom upload field
+            $this->has_fields         = false;
             $this->method_title       = 'UPI QR Code (Manual)';
             $this->method_description = 'Accept payments directly via GPay, PhonePe, Paytm, etc. Generates a dynamic QR code after checkout.';
 
@@ -50,129 +36,133 @@ function cppm_init_upi_gateway() {
             $this->title        = $this->get_option( 'title' );
             $this->description  = $this->get_option( 'description' );
             $this->upi_id       = $this->get_option( 'upi_id' );
-            $this->qr_code_url  = $this->get_option( 'qr_code_url' );
+            $this->payee_name   = $this->get_option( 'payee_name' );
 
+            // Save Settings
             add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
+            
+            // Display QR & Upload Form on Thank You & Order View Pages
+            add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'display_qr_and_upload_form' ) );
+            add_action( 'woocommerce_view_order', array( $this, 'display_qr_and_upload_form' ) );
         }
 
         public function init_form_fields() {
             $this->form_fields = array(
-                'enabled' => array(
-                    'title'   => 'Enable/Disable',
-                    'type'    => 'checkbox',
-                    'label'   => 'Enable Custom UPI Gateway',
-                    'default' => 'yes'
-                ),
-                'title' => array(
-                    'title'       => 'Title',
-                    'type'        => 'text',
-                    'description' => 'This controls the title which the user sees during checkout.',
-                    'default'     => 'Pay via UPI (GPay, PhonePe, Paytm)',
-                    'desc_tip'    => true,
-                ),
-                'description' => array(
-                    'title'       => 'Description',
-                    'type'        => 'textarea',
-                    'description' => 'Payment method description that the customer will see on your checkout.',
-                    'default'     => 'Scan the QR code below and upload a screenshot of your successful transaction.',
-                ),
-                'upi_id' => array(
-                    'title'       => 'Your UPI ID',
-                    'type'        => 'text',
-                    'description' => 'Example: yourname@oksbi',
-                    'default'     => ''
-                ),
-                'qr_code_url' => array(
-                    'title'       => 'QR Code Image URL',
-                    'type'        => 'text',
-                    'description' => 'Paste the URL of your UPI QR code image here.',
-                    'default'     => ''
-                )
+                'enabled' => array( 'title' => 'Enable/Disable', 'type' => 'checkbox', 'label' => 'Enable UPI QR Payment', 'default' => 'yes' ),
+                'title' => array( 'title' => 'Title', 'type' => 'text', 'default' => 'UPI (GPay, PhonePe, Paytm)' ),
+                'description' => array( 'title' => 'Description', 'type' => 'textarea', 'default' => 'Place your order to generate the QR code. You will upload the payment screenshot on the next screen.' ),
+                'upi_id' => array( 'title' => 'Your UPI ID (VPA)', 'type' => 'text', 'default' => 'yourname@bank', 'description' => 'The UPI ID where you want to receive money.' ),
+                'payee_name' => array( 'title' => 'Payee / Business Name', 'type' => 'text', 'default' => 'My Academy' ),
             );
         }
 
-        // ==========================================
-        // 4. FRONTEND CHECKOUT HTML
-        // ==========================================
-        public function payment_fields() {
-            if ( $this->description ) {
-                echo '<p>' . esc_html( $this->description ) . '</p>';
-            }
-            
-            // Clean, pure HTML structure. CSS/JS is handled externally.
-            ?>
-            <div class="cppm-upi-payment-box">
-                <?php if ( $this->qr_code_url ) : ?>
-                    <img src="<?php echo esc_url( $this->qr_code_url ); ?>" class="cppm-upi-qr" alt="UPI QR Code">
-                <?php endif; ?>
-                
-                <?php if ( $this->upi_id ) : ?>
-                    <p class="cppm-upi-instructions">Or pay directly to UPI ID: <strong><?php echo esc_html( $this->upi_id ); ?></strong></p>
-                <?php endif; ?>
-
-                <div class="cppm-upi-upload-wrap">
-                    <label class="cppm-upi-upload-label">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                        Click to Upload Screenshot
-                    </label>
-                    <input type="file" name="upi_screenshot" id="upi_screenshot" accept="image/*" required>
-                    <div class="cppm-upi-file-name"></div>
-                </div>
-            </div>
-            <?php
-        }
-
-        // ==========================================
-        // 5. PROCESS PAYMENT & HANDLE FILE UPLOAD
-        // ==========================================
+        // Process the checkout, set to On-Hold, redirect to Thank You page
         public function process_payment( $order_id ) {
             $order = wc_get_order( $order_id );
-
-            // Handle the File Upload
-            if ( isset( $_FILES['upi_screenshot'] ) && ! empty( $_FILES['upi_screenshot']['name'] ) ) {
-                
-                require_once( ABSPATH . 'wp-admin/includes/file.php' );
-                require_once( ABSPATH . 'wp-admin/includes/image.php' );
-                require_once( ABSPATH . 'wp-admin/includes/media.php' );
-
-                $attachment_id = media_handle_upload( 'upi_screenshot', $order_id );
-
-                if ( is_wp_error( $attachment_id ) ) {
-                    wc_add_notice( 'Error uploading file: ' . $attachment_id->get_error_message(), 'error' );
-                    return; // Stop payment process if upload fails
-                } else {
-                    $img_url = wp_get_attachment_url( $attachment_id );
-                    
-                    // 1. Keep the hidden meta for the frontend UI logic
-                    $order->update_meta_data( '_upi_screenshot_url', $img_url );
-                    $order->update_meta_data( '_upi_screenshot_id', $attachment_id );
-                    
-                    // 2. THE APP FIX: Save as a public Custom Field (no underscore)
-                    $order->update_meta_data( 'UPI Screenshot Link', esc_url($img_url) );
-                    
-                    // 3. THE NOTE FIX: The mobile app strips HTML buttons.
-                    $note = "💳 Payment Screenshot Uploaded!\n\nTap the link below to view it:\n" . esc_url($img_url);
-                    $order->add_order_note( $note );
-                }
-            } else {
-                wc_add_notice( 'Payment screenshot is required to complete this order.', 'error' );
-                return;
-            }
-
-            // Mark as On-Hold (awaiting manual verification)
-            $order->update_status( 'on-hold', __( 'Awaiting manual UPI payment verification.', 'woocommerce' ) );
-
-            // Reduce stock levels
-            wc_reduce_stock_levels( $order_id );
-
-            // Remove cart
+            $order->update_status( 'on-hold', 'Awaiting manual UPI payment screenshot.' );
             WC()->cart->empty_cart();
-
-            // Return thank you redirect
+            
             return array(
                 'result'   => 'success',
                 'redirect' => $this->get_return_url( $order )
             );
         }
+
+        // Generate Dynamic QR and Screenshot Uploader
+        public function display_qr_and_upload_form( $order_id ) {
+            $order = wc_get_order( $order_id );
+            
+            if ( $order->get_payment_method() !== $this->id || $order->has_status( 'completed' ) ) return;
+
+            $uploaded_img = $order->get_meta( '_upi_screenshot_url' );
+            if ( $uploaded_img ) {
+                echo '<div style="background:#ecfdf5; border:1px solid #10b981; padding:20px; border-radius:8px; margin-bottom:30px;">';
+                echo '<h3 style="color:#047857; margin-top:0;">✅ Payment Screenshot Received</h3>';
+                echo '<p style="color:#065f46; margin-bottom:0;">We are currently verifying your transaction. Your course will be unlocked shortly.</p>';
+                echo '</div>';
+                return;
+            }
+
+            $total = $order->get_total();
+            $order_num = $order->get_order_number();
+            
+            $upi_string = sprintf( 'upi://pay?pa=%s&pn=%s&am=%s&cu=INR&tn=Order-%s',
+                urlencode( $this->upi_id ),
+                urlencode( $this->payee_name ),
+                $total,
+                urlencode( $order_num )
+            );
+
+            $qr_image_url = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=10&data=' . urlencode( $upi_string );
+
+            ?>
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:30px; text-align:center; margin-bottom:30px; display:flex; flex-direction:column; align-items:center;">
+                <h2 style="margin-top:0; color:#0f172a;">Scan to Pay</h2>
+                <p style="color:#64748b; font-size:15px; max-width:400px;">Open any UPI app (Google Pay, PhonePe, Paytm) and scan this code. The exact amount and your Order ID (<strong><?php echo $order_num; ?></strong>) will be pre-filled.</p>
+                
+                <img src="<?php echo esc_url($qr_image_url); ?>" alt="UPI QR Code" style="background:#fff; border:4px solid #fff; border-radius:12px; box-shadow:0 4px 6px rgba(0,0,0,0.1); margin: 20px 0; width: 250px; height: 250px;" />
+                
+                <div style="width:100%; max-width:400px; background:#fff; padding:20px; border:1px dashed #cbd5e1; border-radius:8px; text-align:left;">
+                    <h3 style="margin-top:0; font-size:16px;">Upload Payment Proof</h3>
+                    <form method="post" enctype="multipart/form-data" style="margin:0;">
+                        <?php wp_nonce_field( 'upload_upi_screenshot', 'upi_nonce' ); ?>
+                        <input type="hidden" name="upi_order_id" value="<?php echo esc_attr($order_id); ?>">
+                        <input type="file" name="upi_screenshot" accept="image/png, image/jpeg, image/jpg" required style="display:block; width:100%; margin-bottom:15px; padding:10px; border:1px solid #e2e8f0; border-radius:6px;">
+                        <button type="submit" name="submit_upi_screenshot" style="width:100%; background:#2563eb; color:#fff; border:none; padding:12px; border-radius:6px; font-weight:bold; cursor:pointer;">Submit Screenshot</button>
+                    </form>
+                </div>
+            </div>
+            <?php
+        }
+    }
+}
+
+// ==========================================
+// 3. PROCESS THE FILE UPLOAD
+// ==========================================
+add_action( 'template_redirect', 'cppm_handle_upi_screenshot_upload' );
+function cppm_handle_upi_screenshot_upload() {
+    if ( isset($_POST['submit_upi_screenshot']) && isset($_POST['upi_order_id']) && isset($_FILES['upi_screenshot']) ) {
+        
+        if ( ! wp_verify_nonce( $_POST['upi_nonce'], 'upload_upi_screenshot' ) ) {
+            wc_add_notice( 'Security check failed. Please try again.', 'error' );
+            return;
+        }
+
+        $order_id = intval( $_POST['upi_order_id'] );
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) return;
+
+        require_once( ABSPATH . 'wp-admin/includes/image.php' );
+        require_once( ABSPATH . 'wp-admin/includes/file.php' );
+        require_once( ABSPATH . 'wp-admin/includes/media.php' );
+
+        $attachment_id = media_handle_upload( 'upi_screenshot', $order_id );
+
+        if ( is_wp_error( $attachment_id ) ) {
+            wc_add_notice( 'Error uploading file: ' . $attachment_id->get_error_message(), 'error' );
+        } else {
+            $img_url = wp_get_attachment_url( $attachment_id );
+            
+            // 1. Keep the hidden meta for the frontend UI logic
+            $order->update_meta_data( '_upi_screenshot_url', $img_url );
+            $order->update_meta_data( '_upi_screenshot_id', $attachment_id );
+            
+            // 2. THE APP FIX: Save as a public Custom Field (no underscore)
+            // This forces the URL to appear in the WooCommerce Mobile App under "Custom Fields"
+            $order->update_meta_data( 'UPI Screenshot Link', esc_url($img_url) );
+            
+            // 3. THE NOTE FIX: The mobile app strips HTML buttons. 
+            // We use a raw URL here so iOS/Android OS natively turns it into a clickable link.
+            $note = "💳 Payment Screenshot Uploaded!\n\nTap the link below to view it:\n" . esc_url($img_url);
+            $order->add_order_note( $note );
+            
+            $order->save();
+            
+            wc_add_notice( 'Your payment screenshot has been uploaded successfully! We will verify it and unlock your course shortly.', 'success' );
+        }
+        
+        wp_safe_redirect( $order->get_view_order_url() );
+        exit;
     }
 }

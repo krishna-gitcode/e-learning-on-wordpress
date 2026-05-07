@@ -1,43 +1,15 @@
 <?php
 /**
- * Plugin Name: Sarkari Musician Core
- * Plugin URI: https://sarkarimusician.store
- * Description: The proprietary enterprise LMS, E-Commerce, and Music Notation engine powering Sarkari Musician.
- * Version: 2.0.0
+ * Plugin Name: Custom Presto Playlist Manager
+ * Description: Version 24. Features: Builder-Proof Footer Injection, Premium UX, and Modular Architecture.
+ * Version: 1.0
  * Author: Krishna Kumar
- * Author URI: https://sarkarimusician.store
- * Text Domain: sarkari-musician-core
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // Define plugin paths for easy requiring
 define( 'CPPM_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
-
-// ==========================================
-// GITHUB AUTO-UPDATER ENGINE
-// ==========================================
-require_once plugin_dir_path( __FILE__ ) . 'updater/plugin-update-checker.php';
-use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
-
-$sarkariUpdateChecker = PucFactory::buildUpdateChecker(
-    'https://github.com/krishna-gitcode/sarkari-musician-core', // Replace with your exact GitHub Repo URL
-    __FILE__,
-    'sarkari-musician-core'
-);
-$sarkariUpdateChecker->setBranch('main');
-//$sarkariUpdateChecker->setAuthentication('');
-
-
-require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-theme-overrides.php';
-
-require_once plugin_dir_path( __FILE__ ) . 'admin/class-cppm-settings.php';
-
-require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-mock-membership.php';
-
-require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-mock-engine-admin.php';
-
-require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-mock-engine-frontend.php';
 
 // 1. Load Admin Settings & Custom Post Types
 require_once CPPM_PLUGIN_DIR . 'includes/admin-settings.php';
@@ -99,3 +71,59 @@ require_once CPPM_PLUGIN_DIR . 'includes/cppm-my-account.php';
 require_once CPPM_PLUGIN_DIR . 'includes/cppm-compliance.php';
 
 require_once CPPM_PLUGIN_DIR . 'includes/cppm-instructor-portal.php';
+
+// Mock Test Engine
+require_once plugin_dir_path( __FILE__ ) . 'includes/cppm-mock-tests.php';
+
+// ==========================================
+// DYNAMIC SEO: TITLE & FAVICON INJECTION
+// ==========================================
+function cppm_dynamic_seo_title( $title ) {
+    $post_id = 0;
+    if ( isset($_GET['course_id']) && !empty($_GET['course_id']) ) $post_id = intval($_GET['course_id']);
+    elseif ( isset($_GET['ebook_id']) && !empty($_GET['ebook_id']) ) $post_id = intval($_GET['ebook_id']);
+
+    if ( $post_id ) {
+        $post = get_post($post_id);
+        if ( $post ) {
+            return $post->post_title . ' | ' . get_bloginfo('name');
+        }
+    }
+    return $title;
+}
+// Hook into WordPress, Yoast, and RankMath to guarantee the title changes
+add_filter( 'pre_get_document_title', 'cppm_dynamic_seo_title', 999 );
+add_filter( 'wpseo_title', 'cppm_dynamic_seo_title', 999 );
+add_filter( 'rank_math_title', 'cppm_dynamic_seo_title', 999 );
+
+// Hook into WordPress to dynamically change the Favicon to the Course Thumbnail
+add_filter( 'get_site_icon_url', 'cppm_dynamic_site_icon', 999, 3 );
+function cppm_dynamic_site_icon( $url, $size, $blog_id ) {
+    $post_id = 0;
+    if ( isset($_GET['course_id']) && !empty($_GET['course_id']) ) $post_id = intval($_GET['course_id']);
+    elseif ( isset($_GET['ebook_id']) && !empty($_GET['ebook_id']) ) $post_id = intval($_GET['ebook_id']);
+
+    if ( $post_id ) {
+        $thumbnail_url = get_the_post_thumbnail_url( $post_id, 'full' );
+        if ( $thumbnail_url ) {
+            return $thumbnail_url;
+        }
+    }
+    return $url;
+}
+
+
+// ==========================================
+// SARKARI MUSICIAN PRO MEMBERSHIP ENGINE
+// ==========================================
+function cppm_is_user_pro_member( $user_id = 0 ) {
+    if ( ! $user_id ) $user_id = get_current_user_id();
+    if ( ! $user_id ) return false;
+
+    // Fetch the exact timestamp when their membership expires
+    $expiry = get_user_meta( $user_id, '_cppm_pro_member_expiry', true );
+    if ( ! $expiry ) return false;
+
+    // Return true if the current time is less than their expiry time
+    return ( time() < intval( $expiry ) );
+}

@@ -1,25 +1,11 @@
 <?php
-/**
- * Core: Duplicate Purchase Prevention Engine
- * Architecture: Modular / Asset Separated
- */
-
-if ( ! defined( 'ABSPATH' ) ) { exit; }
-
-// ==========================================
-// 1. ENQUEUE PRODUCT ALERTS CSS
-// ==========================================
-add_action( 'wp_enqueue_scripts', 'cppm_enqueue_product_alerts_css', 999 );
-function cppm_enqueue_product_alerts_css() {
-    // Only load this tiny CSS file on Single Product pages
-    if ( function_exists('is_product') && is_product() ) {
-        $plugin_url = plugin_dir_url( dirname( __FILE__ ) );
-        wp_enqueue_style( 'cppm-product-alerts', $plugin_url . 'assets/css/product-alerts.css', array(), '1.0.0' );
-    }
+// Exit if accessed directly
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
 }
 
 // ==========================================
-// 2. DISABLE "ADD TO CART" FOR OWNED COURSES
+// 1. DISABLE "ADD TO CART" FOR OWNED COURSES
 // ==========================================
 add_filter( 'woocommerce_is_purchasable', 'cppm_prevent_course_repurchase', 10, 2 );
 function cppm_prevent_course_repurchase( $purchasable, $product ) {
@@ -35,7 +21,7 @@ function cppm_prevent_course_repurchase( $purchasable, $product ) {
 }
 
 // ==========================================
-// 3. SHOW "ALREADY ENROLLED" BANNER (CLEAN HTML)
+// 2. SHOW "ALREADY ENROLLED" BANNER
 // ==========================================
 add_action( 'woocommerce_single_product_summary', 'cppm_show_already_enrolled_banner', 31 );
 function cppm_show_already_enrolled_banner() {
@@ -46,26 +32,22 @@ function cppm_show_already_enrolled_banner() {
         
         if ( function_exists('wc_customer_bought_product') && wc_customer_bought_product( $current_user->user_email, $current_user->ID, $product->get_id() ) ) {
             
-            // Get the dynamic WooCommerce My Account URL
-            $classroom_url = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('myaccount') : site_url('/my-account/');
+            // Output a premium-looking success banner
+            echo '<div style="background:#ecfdf5; border:1px solid #10b981; padding:20px; border-radius:8px; margin: 20px 0;">';
+            echo '<h4 style="color:#047857; margin:0 0 8px 0; font-size:18px;">✅ You are already enrolled!</h4>';
+            echo '<p style="color:#065f46; margin:0; font-size:14px;">You have lifetime access to this course material.</p>';
             
-            // Render the clean HTML (CSS handles the styling externally)
-            ?>
-            <div class="cppm-enrolled-banner">
-                <h4 class="cppm-enrolled-title">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                    You already own this course
-                </h4>
-                <p class="cppm-enrolled-text">You have full access to the video modules and learning materials for this product.</p>
-                <a href="<?php echo esc_url( $classroom_url ); ?>" class="cppm-enrolled-btn">Go to My Classroom &rarr;</a>
-            </div>
-            <?php
+            // THE FIX: Redirect directly to the "My Classroom" page (ID: 43)
+            $dashboard_url = get_permalink( 43 ); 
+            
+            echo '<a href="' . esc_url( $dashboard_url ) . '" style="display:inline-block; margin-top:15px; background:#10b981; color:#fff; padding:10px 20px; border-radius:6px; text-decoration:none; font-weight:bold; transition:0.2s;">Go to My Classroom</a>';
+            echo '</div>';
         }
     }
 }
 
 // ==========================================
-// 4. CATCH DUPLICATE EMAILS AT CHECKOUT 
+// 3. CATCH DUPLICATE EMAILS AT CHECKOUT 
 // ==========================================
 add_action( 'woocommerce_after_checkout_validation', 'cppm_prevent_duplicate_email_checkout', 10, 2 );
 function cppm_prevent_duplicate_email_checkout( $data, $errors ) {
@@ -83,10 +65,7 @@ function cppm_prevent_duplicate_email_checkout( $data, $errors ) {
             // If they already bought it, throw a hard error and stop the checkout
             if ( wc_customer_bought_product( $billing_email, $user_id, $product_id ) ) {
                 $product = wc_get_product( $product_id );
-                $errors->add( 
-                    'duplicate_purchase', 
-                    sprintf( '<strong>Error:</strong> You already own the course "%s". Please remove it from your cart to proceed.', esc_html( $product->get_name() ) )
-                );
+                $errors->add( 'validation', 'An account with the email <strong>' . esc_html($billing_email) . '</strong> has already purchased <em>' . $product->get_name() . '</em>. Please log in to access your course.' );
             }
         }
     }
